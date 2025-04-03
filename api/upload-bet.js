@@ -33,7 +33,7 @@ export default async function handler(req, res) {
       const imageBase64 = fs.readFileSync(file.filepath, { encoding: 'base64' });
 
       const response = await openai.chat.completions.create({
-        model: 'gpt-4-vision-preview',
+        model: 'gpt-4-vision',
         messages: [
           {
             role: 'system',
@@ -64,7 +64,6 @@ export default async function handler(req, res) {
       const raw = response.choices[0].message.content;
       console.log("🧠 GPT Raw Response:\n", raw);
 
-      // ⛔ No parsing attempt here — return it as raw text
       return res.status(200).send(raw);
     } catch (error) {
       console.error("GPT Vision error:", error.message);
