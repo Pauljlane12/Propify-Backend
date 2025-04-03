@@ -64,7 +64,22 @@ export default async function handler(req, res) {
       const raw = response.choices[0].message.content;
       console.log("🧠 GPT Raw Response:\n", raw);
 
-      return res.status(200).send(raw);
+      // 🧼 Clean up triple backticks or markdown formatting
+      const cleaned = raw.trim()
+        .replace(/^```json\n?/, '')
+        .replace(/^```\n?/, '')
+        .replace(/```$/, '');
+
+      try {
+        const parsed = JSON.parse(cleaned);
+        return res.status(200).json(parsed);
+      } catch (err) {
+        console.error("❌ Failed to parse GPT output:", err);
+        return res.status(500).json({
+          message: "GPT response was not valid JSON",
+          raw: raw,
+        });
+      }
     } catch (error) {
       console.error("GPT Vision error:", error.message);
       return res.status(500).json({ message: 'GPT-4o Vision failed', error: error.message });
