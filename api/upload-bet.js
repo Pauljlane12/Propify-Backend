@@ -46,8 +46,7 @@ export default async function handler(req, res) {
                 type: 'text',
                 text: `Extract all player props from this screenshot. Return them as a JSON array like:
 [
-  { "player": "Jayson Tatum", "prop": "points", "line": 27.5, "type": "over" },
-  ...
+  { "player": "Jayson Tatum", "prop": "points", "line": 27.5, "type": "over" }
 ]`,
               },
               {
@@ -62,18 +61,13 @@ export default async function handler(req, res) {
         max_tokens: 1000,
       });
 
-      const result = response.choices[0].message.content;
+      const raw = response.choices[0].message.content;
+      console.log("🧠 GPT Raw Response:\n", raw);
 
-      let parsed;
-      try {
-        parsed = JSON.parse(result);
-      } catch {
-        return res.status(500).json({ message: 'Failed to parse GPT response', raw: result });
-      }
-
-      return res.status(200).json(parsed);
+      // ⛔ No parsing attempt here — return it as raw text
+      return res.status(200).send(raw);
     } catch (error) {
-      console.error('Vision API error:', error.message);
+      console.error("GPT Vision error:", error.message);
       return res.status(500).json({ message: 'GPT-4 Vision failed', error: error.message });
     }
   });
