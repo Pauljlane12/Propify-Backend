@@ -37,16 +37,22 @@ export default async function handler(req, res) {
         messages: [
           {
             role: 'system',
-            content: 'You are a sports betting analyst. Extract bet lines from a screenshot image.',
+            content: 'You are a sports betting analyst. Extract player prop bet lines from a real screenshot image.',
           },
           {
             role: 'user',
             content: [
               {
                 type: 'text',
-                text: `Extract all player props from this screenshot. Return them as a JSON array like:
+                text: `Look at this betting slip screenshot and extract only the **actual player props you clearly see in the image**.
+
+❌ Do NOT invent or guess any props.  
+❌ Do NOT return example players like "Jayson Tatum" unless they are actually visible.  
+✅ Only return player props you can verify from the image.
+
+Respond ONLY with a JSON array like this:
 [
-  { "player": "Jayson Tatum", "prop": "points", "line": 27.5, "type": "over" }
+  { "player": "Player Name", "prop": "points", "line": 27.5, "type": "over" }
 ]`,
               },
               {
