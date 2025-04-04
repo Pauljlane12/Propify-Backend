@@ -70,15 +70,14 @@ Respond ONLY with a JSON array like this:
       const raw = response.choices[0].message.content;
       console.log("🧠 GPT Raw Response:\n", raw);
 
-      // 🧼 Clean up triple backticks or markdown formatting
       const cleaned = raw.trim()
         .replace(/^```json\n?/, '')
         .replace(/^```\n?/, '')
         .replace(/```$/, '');
 
+      let parsed;
       try {
-        const parsed = JSON.parse(cleaned);
-        return res.status(200).json(parsed);
+        parsed = JSON.parse(cleaned);
       } catch (err) {
         console.error("❌ Failed to parse GPT output:", err);
         return res.status(500).json({
@@ -86,6 +85,18 @@ Respond ONLY with a JSON array like this:
           raw: raw,
         });
       }
+
+      // 🔁 Forward parsed bets to /api/fetch-insights
+      const insightsRes = await fetch(`${process.env.VERCEL_URL}/api/fetch-insights`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(parsed),
+      });
+
+      const insights = await insightsRes.json();
+
+      return res.status(200).json({ insights });
+
     } catch (error) {
       console.error("GPT Vision error:", error.message);
       return res.status(500).json({ message: 'GPT-4o Vision failed', error: error.message });
