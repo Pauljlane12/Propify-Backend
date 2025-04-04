@@ -18,6 +18,7 @@
   "homepage": "https://github.com/Pauljlane12/Propify-Backend#readme",
   "description": "",
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.4",
     "formidable": "^3.5.2",
     "openai": "^4.91.1"
   }
