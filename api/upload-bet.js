@@ -21,6 +21,7 @@ export default async function handler(req, res) {
 
   form.parse(req, async (err, fields, files) => {
     if (err) {
+      console.error('❌ Form parse error:', err);
       return res.status(500).json({ message: 'Error parsing image', error: err });
     }
 
@@ -86,7 +87,7 @@ Respond ONLY with a JSON array like this:
         });
       }
 
-      // 🧼 Fix GPT's 'more/less' to 'over/under'
+      // 🔁 Normalize “more/less” → “over/under”
       const cleanedParsed = parsed.map(leg => ({
         ...leg,
         type: leg.type?.toLowerCase() === 'more' ? 'over'
@@ -94,7 +95,9 @@ Respond ONLY with a JSON array like this:
              : leg.type
       }));
 
-      // 🔁 Forward cleaned bets to /api/fetch-insights
+      console.log("📦 Cleaned Bet Legs:", cleanedParsed);
+
+      // 🔁 Forward to fetch-insights
       const insightsRes = await fetch(`${process.env.VERCEL_URL}/api/fetch-insights`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -102,12 +105,14 @@ Respond ONLY with a JSON array like this:
       });
 
       const insights = await insightsRes.json();
+      console.log("📊 Fetched Insights:", insights);
 
       return res.status(200).json({ insights });
 
     } catch (error) {
-      console.error("GPT Vision error:", error.message);
-      return res.status(500).json({ message: 'GPT-4o Vision failed', error: error.message });
+      console.error("🔥 Upload handler failed:", error.message);
+      return res.status(500).json({ message: 'Upload failed', error: error.message });
     }
   });
 }
+
