@@ -86,11 +86,19 @@ Respond ONLY with a JSON array like this:
         });
       }
 
-      // 🔁 Forward parsed bets to /api/fetch-insights
+      // 🧼 Fix GPT's 'more/less' to 'over/under'
+      const cleanedParsed = parsed.map(leg => ({
+        ...leg,
+        type: leg.type?.toLowerCase() === 'more' ? 'over'
+             : leg.type?.toLowerCase() === 'less' ? 'under'
+             : leg.type
+      }));
+
+      // 🔁 Forward cleaned bets to /api/fetch-insights
       const insightsRes = await fetch(`${process.env.VERCEL_URL}/api/fetch-insights`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(parsed),
+        body: JSON.stringify(cleanedParsed),
       });
 
       const insights = await insightsRes.json();
