@@ -87,7 +87,7 @@ Respond ONLY with a JSON array like this:
         });
       }
 
-      // 🔁 Normalize “more/less” → “over/under”
+      // 🧼 Normalize “more/less” → “over/under”
       const cleanedParsed = parsed.map(leg => ({
         ...leg,
         type: leg.type?.toLowerCase() === 'more' ? 'over'
@@ -97,8 +97,8 @@ Respond ONLY with a JSON array like this:
 
       console.log("📦 Cleaned Bet Legs:", cleanedParsed);
 
-      // 🔁 Forward to fetch-insights
-      const insightsRes = await fetch(`${process.env.VERCEL_URL}/api/fetch-insights`, {
+      // 🔁 Hardcoded fetch-insights URL (so no VERCEL_URL issues)
+      const insightsRes = await fetch("https://propify-backend-git-main-paul-lanes-projects.vercel.app/api/fetch-insights", {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(cleanedParsed),
@@ -115,4 +115,3 @@ Respond ONLY with a JSON array like this:
     }
   });
 }
-
