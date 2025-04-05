@@ -19,11 +19,14 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
+  console.log("🔥 /api/points was hit", req.body); // ✅ Vercel will log this
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Only POST requests allowed' });
   }
 
   const { player, line } = req.body;
+
   if (!player || !line) {
     return res.status(400).json({ error: 'Missing player or line' });
   }
@@ -40,6 +43,7 @@ export default async function handler(req, res) {
       .maybeSingle();
 
     if (playerErr || !playerRow) {
+      console.error('❌ Player not found:', playerErr);
       return res.status(404).json({ error: 'Player not found' });
     }
 
@@ -69,7 +73,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ player, line, insights });
   } catch (err) {
-    console.error('Error in /api/points:', err);
+    console.error('❌ Error in /api/points:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
