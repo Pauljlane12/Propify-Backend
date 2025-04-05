@@ -1,10 +1,25 @@
 // /pages/api/upload-bet.js
 
-// Minor change to force Vercel redeployment
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
-import FormData from 'form-data';
+import { ImageAnnotatorClient } from '@google-cloud/vision';  // <-- Install @google-cloud/vision
 import OpenAI from 'openai';
+
+// If you stored your entire JSON in one environment variable (GOOGLE_CLOUD_VISION_KEY):
+const googleCredentials = JSON.parse(process.env.GOOGLE_CLOUD_VISION_KEY);
+
+// Create the Vision client
+const visionClient = new ImageAnnotatorClient({
+  credentials: {
+    client_email: googleCredentials.client_email,
+    private_key: googleCredentials.private_key,
+  },
+});
+
+// Initialize GPT
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 export const config = {
   api: {
@@ -12,22 +27,16 @@ export const config = {
   },
 };
 
-// Initialize GPT (we'll default to GPT-3.5 here)
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Only POST requests allowed' });
   }
 
-  // 1) Parse incoming form-data (the user’s image upload)
   const form = new IncomingForm();
 
   form.parse(req, async (err, fields, files) => {
     if (err) {
-      console.error('❌ Form parse error:', err);
+      console.error('Form parse error:', err);
       return res.status(500).json({ message: 'Error parsing form data', error: err });
     }
 
@@ -38,36 +47,23 @@ export default async function handler(req, res) {
     }
 
     try {
-      // 2) Read the uploaded image from disk
+      // 1) Read the uploaded image into a Buffer
       const fileBuffer = fs.readFileSync(file.filepath);
 
-      // 3) Call OCR.Space with your OCR API key
-      const formData = new FormData();
-      formData.append('file', fileBuffer, file.originalFilename || 'bet_screenshot.jpg');
-      formData.append('apikey', process.env.OCR_SPACE_API_KEY);
-      formData.append('language', 'eng');
-      formData.append('OCREngine', '2');  // Enable OCR Engine 2
-      formData.append('scale', 'true');   // Scale the image for better detection
-
-      // Use the built-in fetch in Node 18 (no node-fetch needed)
-      const ocrRes = await fetch('https://api.ocr.space/parse/image', {
-        method: 'POST',
-        body: formData,
-      });
-      const ocrJson = await ocrRes.json();
-
-      // OCR.Space typically returns an array under "ParsedResults"
-      // each with a "ParsedText" field
-      const parsedText = ocrJson?.ParsedResults?.[0]?.ParsedText?.trim() || '';
+      // 2) Use Google Vision to detect text
+      const [result] = await visionClient.textDetection(fileBuffer);
+      const detections = result?.textAnnotations;
+      // textAnnotations[0].description usually contains the full recognized text
+      const parsedText = detections?.[0]?.description?.trim() || '';
 
       if (!parsedText) {
-        // If OCR found no text, we can return early or pass an empty array
+        console.log('No text found via Google Vision');
         return res.status(200).json({ message: 'No text found in screenshot', rawText: '' });
       }
 
-      console.log('📝 OCR Extracted Text:\n', parsedText);
+      console.log('📝 Vision Extracted Text:\n', parsedText);
 
-      // 4) Use GPT-3.5 to parse that text into structured bets
+      // 3) Use GPT-3.5 to parse that recognized text into structured bets
       const userPrompt = `
 Here is text from a sports betting slip:
 ---
@@ -96,7 +92,7 @@ Extract valid player prop bets in a JSON array like this:
             content: userPrompt,
           },
         ],
-        temperature: 0, // more deterministic
+        temperature: 0,
         max_tokens: 300,
       });
 
@@ -105,26 +101,27 @@ Extract valid player prop bets in a JSON array like this:
 
       try {
         structuredBets = JSON.parse(rawGpt);
-      } catch (err) {
-        console.error('❌ GPT JSON parse error:', err, '\nRaw GPT output:', rawGpt);
-        // fallback to empty array
+      } catch (jsonErr) {
+        console.error('GPT JSON parse error:', jsonErr, '\nRaw GPT output:', rawGpt);
         structuredBets = [];
       }
 
-      // 🧼 Normalize "more"/"less" to "over"/"under," if needed
+      // (Optional) Normalize "more"/"less" => "over"/"under"
       const cleanedParsed = structuredBets.map(leg => {
         const lower = leg.type?.toLowerCase();
         return {
           ...leg,
-          type: lower === 'more' ? 'over'
-               : lower === 'less' ? 'under'
-               : leg.type,
+          type: lower === 'more'
+            ? 'over'
+            : lower === 'less'
+            ? 'under'
+            : leg.type
         };
       });
 
       console.log('📦 Final structured bets:', cleanedParsed);
 
-      // Or simply return them directly for now
+      // Return to front end
       return res.status(200).json({
         rawText: parsedText,
         structuredBets: cleanedParsed,
