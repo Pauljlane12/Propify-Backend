@@ -3,7 +3,6 @@
 // Minor change to force Vercel redeployment
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
-// REMOVED: import fetch from 'node-fetch'; 
 import FormData from 'form-data';
 import OpenAI from 'openai';
 
@@ -47,10 +46,10 @@ export default async function handler(req, res) {
       formData.append('file', fileBuffer, file.originalFilename || 'bet_screenshot.jpg');
       formData.append('apikey', process.env.OCR_SPACE_API_KEY);
       formData.append('language', 'eng');
-      // formData.append('OCREngine', '2'); // optional - you can try engine 2
-      // Additional optional params if you want them
+      formData.append('OCREngine', '2');  // Enable OCR Engine 2
+      formData.append('scale', 'true');   // Scale the image for better detection
 
-      // Use the built-in fetch now (no node-fetch needed)
+      // Use the built-in fetch in Node 18 (no node-fetch needed)
       const ocrRes = await fetch('https://api.ocr.space/parse/image', {
         method: 'POST',
         body: formData,
@@ -124,18 +123,6 @@ Extract valid player prop bets in a JSON array like this:
       });
 
       console.log('📦 Final structured bets:', cleanedParsed);
-
-      // 5) (Optional) If you want to fetch insights from these bets
-      // just like your old code, do so here:
-      /*
-      const insightsRes = await fetch("https://YOUR-INSIGHTS-ENDPOINT", {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(cleanedParsed),
-      });
-      const insights = await insightsRes.json();
-      return res.status(200).json({ insights });
-      */
 
       // Or simply return them directly for now
       return res.status(200).json({
