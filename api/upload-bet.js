@@ -3,7 +3,7 @@
 // Minor change to force Vercel redeployment
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
-import fetch from 'node-fetch'; // or the built-in fetch if Node 18+
+// REMOVED: import fetch from 'node-fetch'; 
 import FormData from 'form-data';
 import OpenAI from 'openai';
 
@@ -50,6 +50,7 @@ export default async function handler(req, res) {
       // formData.append('OCREngine', '2'); // optional - you can try engine 2
       // Additional optional params if you want them
 
+      // Use the built-in fetch now (no node-fetch needed)
       const ocrRes = await fetch('https://api.ocr.space/parse/image', {
         method: 'POST',
         body: formData,
