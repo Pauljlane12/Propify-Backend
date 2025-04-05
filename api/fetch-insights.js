@@ -63,25 +63,28 @@ export default async function handler(req, res) {
           return { ...leg, insights: ['Player not found'] };
         }
 
-        const { data: stats } = await supabase
+        const { data: allStats } = await supabase
           .from('player_stats')
           .select('*')
           .eq('player_id', playerData.player_id)
           .order('game_date', { ascending: false })
-          .limit(10);
+          .limit(30); // fetch more to filter
 
-        const filteredStats = stats.filter(row =>
-          row.min && row.min.match(/^[0-9]+$/) && parseInt(row.min) >= 10
-        );
+        const eligibleStats = allStats
+          .filter(row =>
+            row.min && row.min.match(/^[0-9]+$/) &&
+            parseInt(row.min) >= 10 &&
+            statLogic(row) !== null &&
+            statLogic(row) !== undefined
+          )
+          .slice(0, 10); // limit to 10 after filtering
 
-        const hits = filteredStats.filter(row =>
+        const hits = eligibleStats.filter(row =>
           type === 'over' ? statLogic(row) > line : statLogic(row) < line
         ).length;
 
-        const totalGames = filteredStats.length;
-        const hitRate = totalGames > 0 ? ((hits / totalGames) * 100).toFixed(1) : 0;
-
-        insights.push(`Hit line in ${hits} of last ${totalGames} games (${hitRate}%).`);
+        const hitRate = (hits / 10 * 100).toFixed(1);
+        insights.push(`Hit line in ${hits} of last 10 eligible games (${hitRate}%).`);
 
         return { ...leg, insights };
       } catch (err) {
