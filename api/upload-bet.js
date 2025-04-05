@@ -1,5 +1,6 @@
 // /pages/api/upload-bet.js
 
+// Minor change to force Vercel redeployment
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
 import fetch from 'node-fetch'; // or the built-in fetch if Node 18+
@@ -54,6 +55,7 @@ export default async function handler(req, res) {
         body: formData,
       });
       const ocrJson = await ocrRes.json();
+
       // OCR.Space typically returns an array under "ParsedResults"
       // each with a "ParsedText" field
       const parsedText = ocrJson?.ParsedResults?.[0]?.ParsedText?.trim() || '';
@@ -83,7 +85,7 @@ Extract valid player prop bets in a JSON array like this:
       `;
 
       const gptResponse = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo', 
+        model: 'gpt-3.5-turbo',
         messages: [
           {
             role: 'system',
@@ -146,4 +148,3 @@ Extract valid player prop bets in a JSON array like this:
     }
   });
 }
-
