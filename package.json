@@ -22,6 +22,6 @@
     "form-data": "^4.0.2",
     "formidable": "^3.5.2",
     "openai": "^4.91.1",
-    "@google-cloud/vision": "5.1.0"
+    "@google-cloud/vision": "^5.9.0"
   }
 }
