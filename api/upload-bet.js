@@ -2,7 +2,7 @@
 
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
-import { ImageAnnotatorClient } from '@google-cloud/vision';  // <-- Install @google-cloud/vision
+import { ImageAnnotatorClient } from '@google-cloud/vision';  // <-- Installs @google-cloud/vision
 import OpenAI from 'openai';
 
 // If you stored your entire JSON in one environment variable (GOOGLE_CLOUD_VISION_KEY):
@@ -96,13 +96,21 @@ Extract valid player prop bets in a JSON array like this:
         max_tokens: 300,
       });
 
-      const rawGpt = gptResponse.choices?.[0]?.message?.content?.trim() || '';
+      // GPT sometimes wraps JSON in triple-backticks, which breaks JSON.parse
+      let rawGpt = gptResponse.choices?.[0]?.message?.content?.trim() || '';
+
+      // Remove ```json fences if they exist
+      rawGpt = rawGpt
+        .replace(/^```json\s*/i, '')  // remove starting ```json
+        .replace(/```$/, '')         // remove trailing ```
+        .trim();
+
       let structuredBets = [];
 
       try {
         structuredBets = JSON.parse(rawGpt);
       } catch (jsonErr) {
-        console.error('GPT JSON parse error:', jsonErr, '\nRaw GPT output:', rawGpt);
+        console.error('❌ GPT JSON parse error:', jsonErr, '\nRaw GPT output:', rawGpt);
         structuredBets = [];
       }
 
