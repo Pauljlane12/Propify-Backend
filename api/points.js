@@ -25,11 +25,12 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Missing or invalid player or line" });
   }
 
+  // Split the player's name
   const [firstName, ...lastParts] = player.trim().split(" ");
   const lastName = lastParts.join(" ");
 
   try {
-    // 1) Look up the player's ID/ team_id
+    // 1) Look up the player's ID/team_id
     const { data: playerRow, error: playerErr } = await supabase
       .from("players")
       .select("player_id, team_id")
@@ -47,6 +48,13 @@ export default async function handler(req, res) {
     }
 
     const { player_id, team_id } = playerRow;
+
+    // If player_id or team_id is null or undefined, abort:
+    if (player_id == null || team_id == null) {
+      console.warn("❌ Missing or invalid player_id/team_id:", player_id, team_id);
+      return res.status(400).json({ error: "Invalid or missing player_id/team_id" });
+    }
+
     const insights = {};
 
     // --------------------------------------------------------
@@ -96,7 +104,8 @@ export default async function handler(req, res) {
         (g) => g.min && /^\d+$/.test(g.min) && parseInt(g.min, 10) >= 10
       );
       const seasonSum = validSeason.reduce((sum, g) => sum + (g.pts || 0), 0);
-      const seasonAvg = validSeason.length > 0 ? seasonSum / validSeason.length : 0;
+      const seasonAvg =
+        validSeason.length > 0 ? seasonSum / validSeason.length : 0;
 
       // Last 3
       const { data: last3Stats, error: e2b } = await supabase
@@ -125,7 +134,6 @@ export default async function handler(req, res) {
 
     // --------------------------------------------------------
     // INSIGHT #5: Home vs Away Performance
-    // (We do 2 queries: homeGames => homeStats, awayGames => awayStats)
     // --------------------------------------------------------
     try {
       // 1) Home game IDs
@@ -136,7 +144,7 @@ export default async function handler(req, res) {
       if (e5a) throw e5a;
       const homeIDs = homeGames.map((g) => g.id);
 
-      // 2) home stats
+      // 2) Home stats
       const { data: homeStats, error: e5b } = await supabase
         .from("player_stats")
         .select("pts, min")
@@ -157,7 +165,7 @@ export default async function handler(req, res) {
       if (e5c) throw e5c;
       const awayIDs = awayGames.map((g) => g.id);
 
-      // 4) away stats
+      // 4) Away stats
       const { data: awayStats, error: e5d } = await supabase
         .from("player_stats")
         .select("pts, min")
@@ -201,6 +209,7 @@ export default async function handler(req, res) {
       // Build a lookup: (date, home_team_id) -> game, and (date, visitor_team_id) -> game
       const gameLookup = {};
       for (const gm of allGames) {
+        // If home_team_id or visitor_team_id is null in the DB, skip
         if (gm.home_team_id) {
           const homeKey = `${gm.date}_${gm.home_team_id}`;
           gameLookup[homeKey] = gm;
@@ -225,6 +234,9 @@ export default async function handler(req, res) {
         } else {
           defenseTeamId = matchedGame.home_team_id;
         }
+
+        // If defenseTeamId is null, skip
+        if (!defenseTeamId) continue;
 
         // Enrich the box-score row with defense_team_id
         allPGStats.push({
@@ -292,7 +304,6 @@ export default async function handler(req, res) {
         item.rank = idx + 1;
       });
 
-      // We'll store this entire array in the insights object
       insights.insight_3_team_defense_vs_pgs = pgDefenseByTeam;
       console.log("✅ insight_3_team_defense_vs_pgs computed (date/team matching)");
     } catch (err) {
