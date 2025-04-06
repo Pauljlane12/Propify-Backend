@@ -181,54 +181,66 @@ export default async function handler(req, res) {
     }
 
     // --------------------------------------------------------
-    // INSIGHT #3: Team Defense vs PGs
-    // (League-wide approach: sum PG points, find defense_team_id, rank them.)
-    // We'll replicate your multi-CTE snippet in Node.
+    // INSIGHT #3: Team Defense vs PGs (No box_scores.game_id)
     // --------------------------------------------------------
     try {
-      // 1) Get all PG box scores
+      // 1) Get all PG box scores (without "game_id")
       const { data: rawPGBoxScores, error: e3a } = await supabase
         .from("box_scores")
-        .select("player_id, pts, team_id, game_id, position")
+        .select("game_date, player_id, pts, team_id, position")
         .eq("position", "PG")
         .neq("pts", null);
       if (e3a) throw e3a;
 
-      // 2) Get all games
+      // 2) Get all games (we'll match each box_score by date + team)
       const { data: allGames, error: e3b } = await supabase
         .from("games")
-        .select("id, home_team_id, visitor_team_id");
+        .select("id, date, home_team_id, visitor_team_id");
       if (e3b) throw e3b;
 
-      const gameMap = {};
-      allGames.forEach((g) => {
-        gameMap[g.id] = g;
-      });
-
-      // 3) Compute defense_team_id
-      const allPGStats = rawPGBoxScores.map((bs) => {
-        const g = gameMap[bs.game_id];
-        if (!g) return null;
-        let defenseTeamId;
-        if (bs.team_id === g.home_team_id) {
-          defenseTeamId = g.visitor_team_id;
-        } else {
-          defenseTeamId = g.home_team_id;
+      // Build a lookup: (date, home_team_id) -> game, and (date, visitor_team_id) -> game
+      const gameLookup = {};
+      for (const gm of allGames) {
+        if (gm.home_team_id) {
+          const homeKey = `${gm.date}_${gm.home_team_id}`;
+          gameLookup[homeKey] = gm;
         }
-        return {
+        if (gm.visitor_team_id) {
+          const awayKey = `${gm.date}_${gm.visitor_team_id}`;
+          gameLookup[awayKey] = gm;
+        }
+      }
+
+      // 3) Compute defense_team_id by looking up (game_date, team_id) => matched game
+      const allPGStats = [];
+      for (const bs of rawPGBoxScores) {
+        const key = `${bs.game_date}_${bs.team_id}`;
+        const matchedGame = gameLookup[key];
+        // If no match, skip or handle differently
+        if (!matchedGame) continue;
+
+        let defenseTeamId;
+        if (bs.team_id === matchedGame.home_team_id) {
+          defenseTeamId = matchedGame.visitor_team_id;
+        } else {
+          defenseTeamId = matchedGame.home_team_id;
+        }
+
+        // Enrich the box-score row with defense_team_id
+        allPGStats.push({
           ...bs,
           defense_team_id: defenseTeamId,
-        };
-      }).filter(Boolean);
+        });
+      }
 
-      // 4) Group by (defense_team_id, game_id) => sum PG points
+      // 4) Group by (defense_team_id, game_date) => sum PG points
       const grouped = {};
       for (const row of allPGStats) {
-        const key = `${row.defense_team_id}_${row.game_id}`;
+        const key = `${row.defense_team_id}_${row.game_date}`;
         if (!grouped[key]) {
           grouped[key] = {
             defense_team_id: row.defense_team_id,
-            game_id: row.game_id,
+            game_date: row.game_date,
             total_pg_pts: 0,
           };
         }
@@ -247,12 +259,13 @@ export default async function handler(req, res) {
         defMap[defId].count += 1;
       }
 
+      // Convert to array and calculate averages
       const pgDefenseByTeam = [];
       for (const defId in defMap) {
         const { sum, count } = defMap[defId];
         const avg_pg_pts_allowed = count > 0 ? sum / count : 0;
         pgDefenseByTeam.push({
-          defense_team_id: +defId,
+          defense_team_id: Number(defId),
           games_sampled: count,
           avg_pg_pts_allowed: +avg_pg_pts_allowed.toFixed(2),
         });
@@ -263,6 +276,7 @@ export default async function handler(req, res) {
         .from("teams")
         .select("id, full_name");
       if (e3c) throw e3c;
+
       const teamMap = {};
       allTeams.forEach((t) => {
         teamMap[t.id] = t.full_name;
@@ -280,7 +294,7 @@ export default async function handler(req, res) {
 
       // We'll store this entire array in the insights object
       insights.insight_3_team_defense_vs_pgs = pgDefenseByTeam;
-      console.log("✅ insight_3_team_defense_vs_pgs computed (league-wide)");
+      console.log("✅ insight_3_team_defense_vs_pgs computed (date/team matching)");
     } catch (err) {
       console.error("❌ Error in insight_3_team_defense_vs_pgs:", err);
       insights.insight_3_team_defense_vs_pgs = `Error: ${err.message}`;
