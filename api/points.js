@@ -29,7 +29,7 @@ export default async function handler(req, res) {
   const lastName = lastParts.join(" ");
 
   try {
-    // 1) Find player_id from 'players' table
+    // 1) Look up the player's ID/ team_id
     const { data: playerRow, error: playerErr } = await supabase
       .from("players")
       .select("player_id, team_id")
@@ -47,167 +47,246 @@ export default async function handler(req, res) {
     }
 
     const { player_id, team_id } = playerRow;
-
-    // Prepare final results
     const insights = {};
 
-    // ---------------------------------------------------
+    // --------------------------------------------------------
     // INSIGHT #1: Last 10 Game Hit Rate
-    // Instead of raw SQL, we do a direct query
-    // Then compute hits in JS.
-    // ---------------------------------------------------
+    // --------------------------------------------------------
     try {
-      const { data: last10, error: e1 } = await supabase
+      const { data: last10Stats, error: e1 } = await supabase
         .from("player_stats")
         .select("pts, min")
         .eq("player_id", player_id)
         .order("game_date", { ascending: false })
         .limit(10);
 
-      if (e1) {
-        throw e1;
-      }
+      if (e1) throw e1;
 
-      // Filter out any that have min < 10
-      const validGames = last10.filter(
+      const valid = last10Stats.filter(
         (g) => g.min && /^\d+$/.test(g.min) && parseInt(g.min, 10) >= 10
       );
 
-      const total = validGames.length;
-      const hits = validGames.filter((g) => g.pts > line).length;
-      const hitRate = total > 0 ? ((hits / total) * 100).toFixed(1) : 0;
+      const total = valid.length;
+      const hits = valid.filter((g) => g.pts > line).length;
+      const hitRatePercent = total > 0 ? ((hits / total) * 100).toFixed(1) : "0";
 
       insights.insight_1_hit_rate = {
         overHits: hits,
         totalGames: total,
-        hitRatePercent: hitRate,
+        hitRatePercent,
       };
-      console.log("✅ Computed insight_1_hit_rate from JS logic");
+      console.log("✅ insight_1_hit_rate computed");
     } catch (err) {
-      console.error("❌ Error in insight_1_hit_rate logic:", err);
+      console.error("❌ Error in insight_1_hit_rate:", err);
       insights.insight_1_hit_rate = `Error: ${err.message}`;
     }
 
-    // ---------------------------------------------------
+    // --------------------------------------------------------
     // INSIGHT #2: Season Average vs Last 3 Games
-    // We'll do 2 separate queries: entire season + last 3
-    // ---------------------------------------------------
+    // --------------------------------------------------------
     try {
-      // Entire season (pts) where min >= 10
-      const { data: seasonAll, error: e2a } = await supabase
+      // Entire season
+      const { data: seasonStats, error: e2a } = await supabase
         .from("player_stats")
         .select("pts, min")
         .eq("player_id", player_id);
 
-      if (e2a) {
-        throw e2a;
-      }
-      const validSeason = seasonAll.filter(
+      if (e2a) throw e2a;
+      const validSeason = seasonStats.filter(
         (g) => g.min && /^\d+$/.test(g.min) && parseInt(g.min, 10) >= 10
       );
-      const seasonAvg =
-        validSeason.reduce((sum, g) => sum + (g.pts || 0), 0) /
-        (validSeason.length || 1);
+      const seasonSum = validSeason.reduce((sum, g) => sum + (g.pts || 0), 0);
+      const seasonAvg = validSeason.length > 0 ? seasonSum / validSeason.length : 0;
 
       // Last 3
-      const { data: last3, error: e2b } = await supabase
+      const { data: last3Stats, error: e2b } = await supabase
         .from("player_stats")
         .select("pts, min")
         .eq("player_id", player_id)
         .order("game_date", { ascending: false })
         .limit(3);
 
-      if (e2b) {
-        throw e2b;
-      }
-      const validLast3 = last3.filter(
+      if (e2b) throw e2b;
+      const validLast3 = last3Stats.filter(
         (g) => g.min && /^\d+$/.test(g.min) && parseInt(g.min, 10) >= 10
       );
-      const avgLast3 =
-        validLast3.reduce((sum, g) => sum + (g.pts || 0), 0) /
-        (validLast3.length || 1);
+      const sumLast3 = validLast3.reduce((sum, g) => sum + (g.pts || 0), 0);
+      const avgLast3 = validLast3.length > 0 ? sumLast3 / validLast3.length : 0;
 
       insights.insight_2_season_vs_last3 = {
         seasonAvg: +seasonAvg.toFixed(1),
         last3Avg: +avgLast3.toFixed(1),
       };
-      console.log("✅ Computed insight_2_season_vs_last3 from JS logic");
+      console.log("✅ insight_2_season_vs_last3 computed");
     } catch (err) {
-      console.error("❌ Error in insight_2_season_vs_last3 logic:", err);
+      console.error("❌ Error in insight_2_season_vs_last3:", err);
       insights.insight_2_season_vs_last3 = `Error: ${err.message}`;
     }
 
-    // ---------------------------------------------------
+    // --------------------------------------------------------
     // INSIGHT #5: Home vs Away Performance
-    // We'll do two queries: home, away
-    // We'll interpret 'home' as any game
-    // where the player's team_id == games.home_team_id
-    // This requires a join or a separate approach.
-    // For simplicity, let's do an all stats fetch
-    // then do a second table 'games' to find home vs. away.
-    // ---------------------------------------------------
+    // (We do 2 queries: homeGames => homeStats, awayGames => awayStats)
+    // --------------------------------------------------------
     try {
-      // We actually need to join 'games' to find which are home vs. away
-      // We'll do a single query from 'player_stats' + 'games'
-      // using supabase "eq('player_stats.player_id', ...)" and maybe "select(...)"?
-      // A simpler approach is to do 2 queries: one for home, one for away
-      // if we stored game.home_team_id, game.id, etc. We'll do a basic approach:
-
-      // 1) HOME
+      // 1) Home game IDs
       const { data: homeGames, error: e5a } = await supabase
-        .from("player_stats")
-        .select(`
-          pts,
-          min,
-          game_id,
-          team_id,
-          games!inner(home_team_id)
-        `) // using supabase's foreign table syntax
-        .eq("player_id", player_id)
-        .eq("games.home_team_id", team_id); // means he's on the home side
-      if (e5a) {
-        throw e5a;
-      }
-      const validHome = homeGames.filter(
-        (g) => g.min && /^\d+$/.test(g.min) && parseInt(g.min, 10) >= 10
-      );
-      const homeAvg =
-        validHome.reduce((sum, r) => sum + (r.pts || 0), 0) /
-        (validHome.length || 1);
+        .from("games")
+        .select("id")
+        .eq("home_team_id", team_id);
+      if (e5a) throw e5a;
+      const homeIDs = homeGames.map((g) => g.id);
 
-      // 2) AWAY
-      const { data: awayGames, error: e5b } = await supabase
+      // 2) home stats
+      const { data: homeStats, error: e5b } = await supabase
         .from("player_stats")
-        .select(`
-          pts,
-          min,
-          game_id,
-          team_id,
-          games!inner(visitor_team_id)
-        `)
+        .select("pts, min")
         .eq("player_id", player_id)
-        .eq("games.visitor_team_id", team_id); // means he's away side
-      if (e5b) {
-        throw e5b;
-      }
-      const validAway = awayGames.filter(
+        .in("game_id", homeIDs);
+      if (e5b) throw e5b;
+      const validHome = homeStats.filter(
         (g) => g.min && /^\d+$/.test(g.min) && parseInt(g.min, 10) >= 10
       );
-      const awayAvg =
-        validAway.reduce((sum, r) => sum + (r.pts || 0), 0) /
-        (validAway.length || 1);
+      const homeSum = validHome.reduce((sum, x) => sum + (x.pts || 0), 0);
+      const homeAvg = validHome.length > 0 ? homeSum / validHome.length : 0;
+
+      // 3) Away game IDs
+      const { data: awayGames, error: e5c } = await supabase
+        .from("games")
+        .select("id")
+        .eq("visitor_team_id", team_id);
+      if (e5c) throw e5c;
+      const awayIDs = awayGames.map((g) => g.id);
+
+      // 4) away stats
+      const { data: awayStats, error: e5d } = await supabase
+        .from("player_stats")
+        .select("pts, min")
+        .eq("player_id", player_id)
+        .in("game_id", awayIDs);
+      if (e5d) throw e5d;
+      const validAway = awayStats.filter(
+        (g) => g.min && /^\d+$/.test(g.min) && parseInt(g.min, 10) >= 10
+      );
+      const awaySum = validAway.reduce((sum, x) => sum + (x.pts || 0), 0);
+      const awayAvg = validAway.length > 0 ? awaySum / validAway.length : 0;
 
       insights.insight_5_home_vs_away = {
         home: +homeAvg.toFixed(2),
         away: +awayAvg.toFixed(2),
       };
-      console.log("✅ Computed insight_5_home_vs_away from JS logic");
+      console.log("✅ insight_5_home_vs_away computed");
     } catch (err) {
-      console.error("❌ Error in insight_5_home_vs_away logic:", err);
+      console.error("❌ Error in insight_5_home_vs_away:", err);
       insights.insight_5_home_vs_away = `Error: ${err.message}`;
     }
 
-    // Return final
+    // --------------------------------------------------------
+    // INSIGHT #3: Team Defense vs PGs
+    // (League-wide approach: sum PG points, find defense_team_id, rank them.)
+    // We'll replicate your multi-CTE snippet in Node.
+    // --------------------------------------------------------
+    try {
+      // 1) Get all PG box scores
+      const { data: rawPGBoxScores, error: e3a } = await supabase
+        .from("box_scores")
+        .select("player_id, pts, team_id, game_id, position")
+        .eq("position", "PG")
+        .neq("pts", null);
+      if (e3a) throw e3a;
+
+      // 2) Get all games
+      const { data: allGames, error: e3b } = await supabase
+        .from("games")
+        .select("id, home_team_id, visitor_team_id");
+      if (e3b) throw e3b;
+
+      const gameMap = {};
+      allGames.forEach((g) => {
+        gameMap[g.id] = g;
+      });
+
+      // 3) Compute defense_team_id
+      const allPGStats = rawPGBoxScores.map((bs) => {
+        const g = gameMap[bs.game_id];
+        if (!g) return null;
+        let defenseTeamId;
+        if (bs.team_id === g.home_team_id) {
+          defenseTeamId = g.visitor_team_id;
+        } else {
+          defenseTeamId = g.home_team_id;
+        }
+        return {
+          ...bs,
+          defense_team_id: defenseTeamId,
+        };
+      }).filter(Boolean);
+
+      // 4) Group by (defense_team_id, game_id) => sum PG points
+      const grouped = {};
+      for (const row of allPGStats) {
+        const key = `${row.defense_team_id}_${row.game_id}`;
+        if (!grouped[key]) {
+          grouped[key] = {
+            defense_team_id: row.defense_team_id,
+            game_id: row.game_id,
+            total_pg_pts: 0,
+          };
+        }
+        grouped[key].total_pg_pts += row.pts || 0;
+      }
+      const pgPointsByGame = Object.values(grouped);
+
+      // 5) Group by defense_team_id => average
+      const defMap = {};
+      for (const record of pgPointsByGame) {
+        const defId = record.defense_team_id;
+        if (!defMap[defId]) {
+          defMap[defId] = { sum: 0, count: 0 };
+        }
+        defMap[defId].sum += record.total_pg_pts;
+        defMap[defId].count += 1;
+      }
+
+      const pgDefenseByTeam = [];
+      for (const defId in defMap) {
+        const { sum, count } = defMap[defId];
+        const avg_pg_pts_allowed = count > 0 ? sum / count : 0;
+        pgDefenseByTeam.push({
+          defense_team_id: +defId,
+          games_sampled: count,
+          avg_pg_pts_allowed: +avg_pg_pts_allowed.toFixed(2),
+        });
+      }
+
+      // 6) Join with teams => defense_team name
+      const { data: allTeams, error: e3c } = await supabase
+        .from("teams")
+        .select("id, full_name");
+      if (e3c) throw e3c;
+      const teamMap = {};
+      allTeams.forEach((t) => {
+        teamMap[t.id] = t.full_name;
+      });
+
+      pgDefenseByTeam.forEach((item) => {
+        item.defense_team = teamMap[item.defense_team_id] || "Unknown";
+      });
+
+      // 7) Sort + rank
+      pgDefenseByTeam.sort((a, b) => a.avg_pg_pts_allowed - b.avg_pg_pts_allowed);
+      pgDefenseByTeam.forEach((item, idx) => {
+        item.rank = idx + 1;
+      });
+
+      // We'll store this entire array in the insights object
+      insights.insight_3_team_defense_vs_pgs = pgDefenseByTeam;
+      console.log("✅ insight_3_team_defense_vs_pgs computed (league-wide)");
+    } catch (err) {
+      console.error("❌ Error in insight_3_team_defense_vs_pgs:", err);
+      insights.insight_3_team_defense_vs_pgs = `Error: ${err.message}`;
+    }
+
+    // Return all insights in one response
     return res.status(200).json({ player, line, insights });
   } catch (err) {
     console.error("❌ Unhandled error in /api/points:", err);
