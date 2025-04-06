@@ -19,13 +19,16 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
+  console.log("🔥 /api/points was hit", req.body); // ✅ logs to Vercel
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Only POST requests allowed' });
   }
 
   const { player, line } = req.body;
-  if (!player || !line) {
-    return res.status(400).json({ error: 'Missing player or line' });
+
+  if (!player || typeof line !== 'number') {
+    return res.status(400).json({ error: 'Missing or invalid player or line' });
   }
 
   const [firstName, ...lastParts] = player.trim().split(' ');
@@ -39,7 +42,13 @@ export default async function handler(req, res) {
       .ilike('last_name', `%${lastName}%`)
       .maybeSingle();
 
-    if (playerErr || !playerRow) {
+    if (playerErr) {
+      console.error('❌ Supabase error while fetching player:', playerErr);
+      return res.status(500).json({ error: 'Error looking up player' });
+    }
+
+    if (!playerRow) {
+      console.warn('❌ No matching player found');
       return res.status(404).json({ error: 'Player not found' });
     }
 
@@ -64,12 +73,19 @@ export default async function handler(req, res) {
       }
 
       const { data, error } = await supabase.rpc('run_sql', { sql: filled });
-      insights[key] = error ? `Error: ${error.message}` : data;
+
+      if (error) {
+        console.error(`❌ Error running query ${key}:`, error);
+        insights[key] = `Error: ${error.message}`;
+      } else {
+        console.log(`✅ Query success: ${key}`);
+        insights[key] = data;
+      }
     }
 
     return res.status(200).json({ player, line, insights });
   } catch (err) {
-    console.error('Error in /api/points:', err);
+    console.error('❌ Unhandled error in /api/points:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
