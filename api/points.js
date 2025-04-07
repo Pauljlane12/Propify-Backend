@@ -22,8 +22,8 @@ export default async function handler(req, res) {
   let {
     player,
     line,
-    opponentAbbr,        // e.g. 'MIA' for Insight #6
-    teamAbbrForInjuries, // e.g. 'LAL' for Insight #7
+    opponentAbbr,        // e.g. 'MIA' for Insight #5
+    teamAbbrForInjuries, // e.g. 'LAL' for Insight #6
   } = req.body;
 
   if (!player || typeof line !== "number") {
@@ -150,24 +150,46 @@ export default async function handler(req, res) {
     }
 
     // ----------------------------------------------------------------
-    // INSIGHT #5: Home vs Away Performance
+    // INSIGHT #3: Positional Defense Rankings (PG vs. Miami)
+    // ----------------------------------------------------------------
+    try {
+      // This is the precomputed approach from your `positional_defense_rankings` table
+      // We'll store it as "insight_3_positional_defense" in the final JSON
+      const { data: precompRows, error: precompErr } = await supabase
+        .from("positional_defense_rankings")
+        .select("*")
+        .eq("position", "PG")
+        .eq("stat_type", "pts")
+        .eq("defense_team_name", "Miami Heat");
+
+      if (precompErr) throw precompErr;
+
+      insights.insight_3_positional_defense = precompRows;
+      console.log("✅ insight_3_positional_defense (PG vs. Miami) fetched");
+    } catch (err) {
+      console.error("❌ Error in insight_3_positional_defense:", err);
+      insights.insight_3_positional_defense = `Error: ${err.message}`;
+    }
+
+    // ----------------------------------------------------------------
+    // INSIGHT #4: Home vs. Away Performance
     // ----------------------------------------------------------------
     try {
       // HOME game IDs
-      const { data: homeGames, error: e5a } = await supabase
+      const { data: homeGames, error: e4a } = await supabase
         .from("games")
         .select("id")
         .eq("home_team_id", team_id);
-      if (e5a) throw e5a;
+      if (e4a) throw e4a;
       const homeIDs = homeGames.map((g) => g.id).filter(Boolean);
 
       // Stats in home games
-      const { data: homeStats, error: e5b } = await supabase
+      const { data: homeStats, error: e4b } = await supabase
         .from("player_stats")
         .select("pts, min")
         .eq("player_id", player_id)
         .in("game_id", homeIDs);
-      if (e5b) throw e5b;
+      if (e4b) throw e4b;
 
       const validHome = homeStats.filter(
         (g) => g.min && /^\d+$/.test(g.min) && parseInt(g.min, 10) >= 10
@@ -176,20 +198,20 @@ export default async function handler(req, res) {
       const homeAvg = validHome.length > 0 ? homeSum / validHome.length : 0;
 
       // AWAY game IDs
-      const { data: awayGames, error: e5c } = await supabase
+      const { data: awayGames, error: e4c } = await supabase
         .from("games")
         .select("id")
         .eq("visitor_team_id", team_id);
-      if (e5c) throw e5c;
+      if (e4c) throw e4c;
       const awayIDs = awayGames.map((g) => g.id).filter(Boolean);
 
       // Stats in away games
-      const { data: awayStats, error: e5d } = await supabase
+      const { data: awayStats, error: e4d } = await supabase
         .from("player_stats")
         .select("pts, min")
         .eq("player_id", player_id)
         .in("game_id", awayIDs);
-      if (e5d) throw e5d;
+      if (e4d) throw e4d;
 
       const validAway = awayStats.filter(
         (g) => g.min && /^\d+$/.test(g.min) && parseInt(g.min, 10) >= 10
@@ -197,48 +219,46 @@ export default async function handler(req, res) {
       const awaySum = validAway.reduce((sum, g) => sum + (g.pts || 0), 0);
       const awayAvg = validAway.length > 0 ? awaySum / validAway.length : 0;
 
-      insights.insight_5_home_vs_away = {
+      insights.insight_4_home_vs_away = {
         home: +homeAvg.toFixed(2),
         away: +awayAvg.toFixed(2),
       };
-      console.log("✅ insight_5_home_vs_away computed");
+      console.log("✅ insight_4_home_vs_away computed");
     } catch (err) {
-      console.error("❌ Error in insight_5_home_vs_away:", err);
-      insights.insight_5_home_vs_away = `Error: ${err.message}`;
+      console.error("❌ Error in insight_4_home_vs_away:", err);
+      insights.insight_4_home_vs_away = `Error: ${err.message}`;
     }
 
     // ----------------------------------------------------------------
-    // INSIGHT #6: Matchup History vs. Specific Opponent
-    // Always runs, with a default if user didn’t provide opponentAbbr
+    // INSIGHT #5: Matchup History vs. Specific Opponent
     // ----------------------------------------------------------------
     try {
-      // 1) fetch player's game stats
-      const { data: playerGames, error: e6a } = await supabase
+      const { data: playerGames, error: e5a } = await supabase
         .from("player_stats")
         .select("game_id, game_date, pts")
         .eq("player_id", player_id)
         .neq("pts", null)
         .order("game_date", { ascending: false });
-      if (e6a) throw e6a;
+      if (e5a) throw e5a;
 
-      // 2) find opponent team(s) by abbreviation
-      const { data: oppTeams, error: e6b } = await supabase
+      // find opponent team(s) by abbreviation
+      const { data: oppTeams, error: e5b } = await supabase
         .from("teams")
         .select("id, abbreviation")
-        .ilike("abbreviation", opponentAbbr); // Use the user’s or default
-      if (e6b) throw e6b;
+        .ilike("abbreviation", opponentAbbr);
+      if (e5b) throw e5b;
       if (!oppTeams || oppTeams.length === 0) {
         throw new Error(`No team found with abbreviation ${opponentAbbr}`);
       }
       const oppTeamIds = oppTeams.map((t) => t.id);
 
-      // 3) get all relevant games
+      // get all relevant games
       const gameIds = playerGames.map((g) => g.game_id).filter(Boolean);
-      const { data: fullGames, error: e6c } = await supabase
+      const { data: fullGames, error: e5c } = await supabase
         .from("games")
         .select("id, home_team_id, visitor_team_id, date")
         .in("id", gameIds);
-      if (e6c) throw e6c;
+      if (e5c) throw e5c;
 
       // filter to only those with home_team_id or visitor_team_id in oppTeamIds
       const relevantGameIds = new Set(
@@ -252,10 +272,10 @@ export default async function handler(req, res) {
       );
 
       // build a map for matchup strings
-      const { data: allTeams, error: e6d } = await supabase
+      const { data: allTeams, error: e5d } = await supabase
         .from("teams")
         .select("id, abbreviation");
-      if (e6d) throw e6d;
+      if (e5d) throw e5d;
 
       const teamAbbrMap = {};
       allTeams.forEach((t) => {
@@ -280,37 +300,36 @@ export default async function handler(req, res) {
           points_scored: pg.pts,
         }));
 
-      insights.insight_6_matchup_history = matchupHistory;
-      console.log("✅ insight_6_matchup_history computed");
+      insights.insight_5_matchup_history = matchupHistory;
+      console.log("✅ insight_5_matchup_history computed");
     } catch (err) {
-      console.error("❌ Error in insight_6_matchup_history:", err);
-      insights.insight_6_matchup_history = `Error: ${err.message}`;
+      console.error("❌ Error in insight_5_matchup_history:", err);
+      insights.insight_5_matchup_history = `Error: ${err.message}`;
     }
 
     // ----------------------------------------------------------------
-    // INSIGHT #7: Injury Report – Key Player Absences
-    // Always runs, with a default if user didn’t provide teamAbbrForInjuries
+    // INSIGHT #6: Injury Report – Key Player Absences
     // ----------------------------------------------------------------
     try {
-      // 1) find team_id from abbreviation
-      const { data: injTeam, error: i7a } = await supabase
+      // find team_id from abbreviation
+      const { data: injTeam, error: i6a } = await supabase
         .from("teams")
         .select("id, abbreviation")
         .ilike("abbreviation", teamAbbrForInjuries)
         .maybeSingle();
-      if (i7a) throw i7a;
+      if (i6a) throw i6a;
       if (!injTeam) {
         throw new Error(`No team found with abbreviation ${teamAbbrForInjuries}`);
       }
 
-      // 2) get all injuries for that team
-      const { data: rawInjuries, error: i7b } = await supabase
+      // get all injuries for that team
+      const { data: rawInjuries, error: i6b } = await supabase
         .from("player_injuries")
         .select("player_id, first_name, last_name, position, status, return_date, description")
         .eq("team_id", injTeam.id);
-      if (i7b) throw i7b;
+      if (i6b) throw i6b;
 
-      // 3) for each injured player, see if they have played after return_date
+      // for each injured player, see if they have played after return_date
       const outPlayers = [];
       for (const inj of rawInjuries) {
         if (!inj.return_date) {
@@ -329,12 +348,12 @@ export default async function handler(req, res) {
 
         const isoDate = potentialReturn.toISOString().slice(0, 10);
 
-        const { data: recentGames, error: i7c } = await supabase
+        const { data: recentGames, error: i6c } = await supabase
           .from("player_stats")
           .select("game_date")
           .eq("player_id", inj.player_id)
           .gte("game_date", isoDate);
-        if (i7c) {
+        if (i6c) {
           console.error("Error checking stats for inj:", inj.player_id);
           // fallback => consider them out
           outPlayers.push(inj);
@@ -346,7 +365,7 @@ export default async function handler(req, res) {
         }
       }
 
-      insights.insight_7_injury_report = outPlayers.map((x) => ({
+      insights.insight_6_injury_report = outPlayers.map((x) => ({
         player_id: x.player_id,
         player_name: `${x.first_name} ${x.last_name}`.trim(),
         position: x.position,
@@ -354,13 +373,13 @@ export default async function handler(req, res) {
         return_date: x.return_date,
         description: x.description,
       }));
-      console.log("✅ insight_7_injury_report computed");
+      console.log("✅ insight_6_injury_report computed");
     } catch (err) {
-      console.error("❌ Error in insight_7_injury_report:", err);
-      insights.insight_7_injury_report = `Error: ${err.message}`;
+      console.error("❌ Error in insight_6_injury_report:", err);
+      insights.insight_6_injury_report = `Error: ${err.message}`;
     }
 
-    // Return all insights
+    // Return all insights (now in the new order)
     return res.status(200).json({ player, line, insights });
   } catch (err) {
     console.error("❌ Unhandled error in /api/points:", err);
