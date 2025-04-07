@@ -61,7 +61,7 @@ async function pointsHandler(req, res) {
 
     const opponentAbbr = opponentTeam?.abbreviation;
 
-    // Insight #1: Last 10 Game Hit Rate
+    // Insight 1: Last 10 Hit Rate
     try {
       const { data } = await supabase
         .from("player_stats")
@@ -80,7 +80,7 @@ async function pointsHandler(req, res) {
       insights.insight_1_hit_rate = { error: err.message };
     }
 
-    // Insight #2: Season Avg vs Last 3
+    // Insight 2: Season Avg vs Last 3
     try {
       const { data: seasonStats } = await supabase
         .from("player_stats")
@@ -106,7 +106,7 @@ async function pointsHandler(req, res) {
       insights.insight_2_season_vs_last3 = { error: err.message };
     }
 
-    // Insight #3: Positional Defense
+    // Insight 3: Positional Defense
     try {
       const { data: activeRow } = await supabase
         .from("active_players")
@@ -125,7 +125,7 @@ async function pointsHandler(req, res) {
       insights.insight_3_positional_defense = { error: err.message };
     }
 
-    // Insight #5: Home vs Away
+    // Insight 5: Home vs Away
     try {
       const { data: gameStats } = await supabase
         .from("player_stats")
@@ -151,7 +151,7 @@ async function pointsHandler(req, res) {
       insights.insight_5_home_vs_away = { error: err.message };
     }
 
-    // Insight #7: Injury Report (both teams)
+    // Insight 7: Injury Report (both teams)
     try {
       const teamIds = [team_id, opponentTeamId].filter(Boolean);
       const { data: injuries } = await supabase
@@ -163,84 +163,132 @@ async function pointsHandler(req, res) {
       insights.insight_7_injury_report = { error: err.message };
     }
 
-    // Advanced Metric #1: Projected Game Pace
+    // Advanced Metric #1: Projected Game Pace (manual possession calc)
     try {
+      const { data: finalGames } = await supabase
+        .from("games")
+        .select("id, date, status, home_team_id, visitor_team_id")
+        .eq("status", "Final");
+
+      const gameMap = {};
+      finalGames.forEach((g) => (gameMap[g.id] = g));
+
+      const { data: finalBox } = await supabase
+        .from("box_scores")
+        .select("team_id, game_date, player_id, fga, fta, oreb, turnover")
+        .in("game_date", finalGames.map((g) => g.date));
+
+      const posMap = {};
+      for (const row of finalBox || []) {
+        const gameRecord = finalGames.find(
+          (g) =>
+            g.date === row.game_date &&
+            (g.home_team_id === row.team_id || g.visitor_team_id === row.team_id)
+        );
+        if (!gameRecord) continue;
+        const key = `${row.team_id}_${gameRecord.id}`;
+        if (!posMap[key]) {
+          posMap[key] = {
+            team_id: row.team_id,
+            game_id: gameRecord.id,
+            possessions: 0,
+          };
+        }
+        const fga = row.fga || 0;
+        const fta = row.fta || 0;
+        const oreb = row.oreb || 0;
+        const to = row.turnover || 0;
+        posMap[key].possessions += fga + 0.44 * fta - oreb + to;
+      }
+
+      const teamPosTotals = {};
+      Object.values(posMap).forEach(({ team_id, possessions }) => {
+        if (!teamPosTotals[team_id]) {
+          teamPosTotals[team_id] = { sum: 0, count: 0 };
+        }
+        teamPosTotals[team_id].sum += possessions;
+        teamPosTotals[team_id].count += 1;
+      });
+
       const { data: teamMeta } = await supabase
         .from("teams")
         .select("id, abbreviation");
 
-      const teamIdToAbbr = Object.fromEntries((teamMeta || []).map(t => [t.id, t.abbreviation || ""]));
-
-      const { data: recentPace } = await supabase
-        .from("advanced_stats")
-        .select("team_id, pace")
-        .in("team_id", [team_id, opponentTeamId]);
-
-      const grouped = {};
-      for (const row of recentPace || []) {
-        if (!grouped[row.team_id]) grouped[row.team_id] = [];
-        if (row.pace !== null) grouped[row.team_id].push(row.pace);
-      }
-
-      const teamPaces = Object.entries(grouped).map(([id, list]) => {
-        return {
-          team_id: +id,
-          abbreviation: teamIdToAbbr[+id] || "",
-          avg_pace: list.length ? list.reduce((a, b) => a + b, 0) / list.length : null,
-        };
+      const abbrToId = {};
+      const idToAbbr = {};
+      teamMeta.forEach((t) => {
+        abbrToId[t.abbreviation] = t.id;
+        idToAbbr[t.id] = t.abbreviation;
       });
 
-      if (teamPaces.length === 2) {
-        const projected = ((teamPaces[0].avg_pace + teamPaces[1].avg_pace) / 2).toFixed(2);
-        insights.advanced_metric_1_projected_game_pace = {
-          team_1: teamPaces[0].abbreviation,
-          team_2: teamPaces[1].abbreviation,
-          projected_game_pace: +projected,
-        };
-      } else {
-        insights.advanced_metric_1_projected_game_pace = {
-          error: "Missing pace data for one or both teams",
-        };
-      }
+      const t1Id = team_id;
+      const t2Id = opponentTeamId;
+
+      const t1Avg =
+        teamPosTotals[t1Id] && teamPosTotals[t1Id].count > 0
+          ? teamPosTotals[t1Id].sum / teamPosTotals[t1Id].count
+          : 0;
+      const t2Avg =
+        teamPosTotals[t2Id] && teamPosTotals[t2Id].count > 0
+          ? teamPosTotals[t2Id].sum / teamPosTotals[t2Id].count
+          : 0;
+
+      const projected_game_pace = +((t1Avg + t2Avg) / 2).toFixed(2);
+
+      insights.advanced_metric_1_projected_game_pace = {
+        team_1: idToAbbr[t1Id] || "??",
+        team_2: idToAbbr[t2Id] || "??",
+        projected_game_pace,
+      };
     } catch (err) {
       insights.advanced_metric_1_projected_game_pace = { error: err.message };
     }
 
-    // Advanced Metric #2: Opponent Team Pace Rank
+    // Advanced Metric #2: Team Pace Rankings
     try {
-      const { data: allPaces } = await supabase
-        .from("advanced_stats")
-        .select("team_id, pace");
+      const { data: finalGames } = await supabase
+        .from("games")
+        .select("id, date, status, home_team_id, visitor_team_id")
+        .eq("status", "Final");
 
-      const grouped = {};
-      for (const row of allPaces || []) {
-        if (!grouped[row.team_id]) grouped[row.team_id] = [];
-        if (row.pace !== null) grouped[row.team_id].push(row.pace);
+      const { data: finalBox } = await supabase
+        .from("box_scores")
+        .select("team_id, game_date, fga, fta, oreb, turnover")
+        .in("game_date", finalGames.map((g) => g.date));
+
+      const posMap = {};
+      for (const row of finalBox || []) {
+        const gm = finalGames.find(
+          (g) =>
+            g.date === row.game_date &&
+            (g.home_team_id === row.team_id || g.visitor_team_id === row.team_id)
+        );
+        if (!gm) continue;
+        const key = `${row.team_id}_${gm.id}`;
+        if (!posMap[key]) posMap[key] = { team_id: row.team_id, possessions: 0 };
+        posMap[key].possessions += (row.fga || 0) + 0.44 * (row.fta || 0) - (row.oreb || 0) + (row.turnover || 0);
       }
 
-      const teamIdToAbbr = Object.fromEntries(
-        (await supabase.from("teams").select("id, abbreviation")).data.map(t => [t.id, t.abbreviation])
-      );
+      const teamTotals = {};
+      Object.values(posMap).forEach(({ team_id, possessions }) => {
+        if (!teamTotals[team_id]) teamTotals[team_id] = { sum: 0, count: 0 };
+        teamTotals[team_id].sum += possessions;
+        teamTotals[team_id].count += 1;
+      });
 
-      const ranked = Object.entries(grouped).map(([id, list]) => {
-        return {
-          team_id: +id,
-          abbreviation: teamIdToAbbr[+id] || "",
-          avg_possessions_per_game: (list.reduce((a, b) => a + b, 0) / list.length).toFixed(2)
-        };
-      }).sort((a, b) => b.avg_possessions_per_game - a.avg_possessions_per_game);
+      const { data: teamMeta } = await supabase.from("teams").select("id, abbreviation");
+      const ranked = Object.entries(teamTotals).map(([id, { sum, count }]) => ({
+        team_id: +id,
+        abbreviation: teamMeta.find((t) => t.id === +id)?.abbreviation || "??",
+        avg_possessions_per_game: +(sum / count).toFixed(2),
+      })).sort((a, b) => b.avg_possessions_per_game - a.avg_possessions_per_game);
 
-      ranked.forEach((team, idx) => team.pace_rank = idx + 1);
+      ranked.forEach((team, idx) => (team.pace_rank = idx + 1));
 
-      const opponentPace = ranked.find(t => t.team_id === opponentTeamId);
-      insights.advanced_metric_2_opponent_pace_rank = opponentPace
-        ? {
-            pace_rank: opponentPace.pace_rank,
-            avg_possessions_per_game: opponentPace.avg_possessions_per_game
-          }
-        : {
-            error: "Opponent pace rank not found"
-          };
+      const opponentStats = ranked.find((t) => t.team_id === opponentTeamId);
+      insights.advanced_metric_2_opponent_pace_rank = opponentStats || {
+        error: "Opponent pace rank not found",
+      };
     } catch (err) {
       insights.advanced_metric_2_opponent_pace_rank = { error: err.message };
     }
