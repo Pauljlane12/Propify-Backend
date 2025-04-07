@@ -15,7 +15,6 @@ async function pointsHandler(req, res) {
   let {
     player,
     line,
-    opponentAbbr,
     teamAbbrForInjuries,
   } = req.body;
 
@@ -31,7 +30,7 @@ async function pointsHandler(req, res) {
   try {
     const { data: playerRow, error: playerErr } = await supabase
       .from("players")
-      .select("player_id, team_id")
+      .select("player_id, team_id, position")
       .ilike("first_name", `%${firstName}%`)
       .ilike("last_name", `%${lastName}%`)
       .maybeSingle();
@@ -40,7 +39,7 @@ async function pointsHandler(req, res) {
       return res.status(404).json({ error: "Player not found" });
     }
 
-    const { player_id, team_id } = playerRow;
+    const { player_id, team_id, position: fallbackPosition } = playerRow;
     const insights = {};
 
     try {
@@ -87,7 +86,7 @@ async function pointsHandler(req, res) {
       insights.insight_2_season_vs_last3 = { error: err.message };
     }
 
-    // Insight #3: Positional Defense vs Next Opponent
+    // Insight #3: Positional Defense vs Next Opponent (dynamic position)
     try {
       const today = new Date().toISOString();
       const { data: upcomingGames } = await supabase
@@ -113,10 +112,18 @@ async function pointsHandler(req, res) {
 
       if (!opponentTeam?.full_name) throw new Error("Opponent team not found");
 
+      const { data: activeRow } = await supabase
+        .from("active_players")
+        .select("true_position")
+        .eq("player_id", player_id)
+        .maybeSingle();
+
+      const playerPosition = activeRow?.true_position || fallbackPosition || "PG";
+
       const { data: defenseRankings, error } = await supabase
         .from("positional_defense_rankings")
         .select("*")
-        .eq("position", "PG")
+        .eq("position", playerPosition)
         .eq("stat_type", "pts")
         .eq("defense_team_name", opponentTeam.full_name);
 
