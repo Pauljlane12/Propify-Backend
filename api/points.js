@@ -157,7 +157,19 @@ async function pointsHandler(req, res) {
         .select("id, abbreviation");
 
       const teamMap = Object.fromEntries((teamLookup || []).map(t => [t.id, t.abbreviation]));
-      const oppTeamId = (teamLookup || []).find(t => t.abbreviation === opponentAbbr)?.id;
+      const { data: teamMatch } = await supabase
+        .from("teams")
+        .select("id")
+        .ilike("abbreviation", opponentAbbr)
+        .maybeSingle();
+
+      const oppTeamId = teamMatch?.id;
+
+      console.log('🧪 playerGames:', playerGames.length);
+      console.log('🧪 gameIds:', gameIds);
+      console.log('🧪 gamesRaw:', gamesRaw?.length);
+      console.log('🧪 opponentAbbr:', opponentAbbr);
+      console.log('🧪 oppTeamId:', oppTeamId);
 
       const matchupIds = new Set(
         (gamesRaw || [])
