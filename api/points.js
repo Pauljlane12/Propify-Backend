@@ -1,18 +1,22 @@
-// /api/points.js
-import { createClient } from "@supabase/supabase-js";
+// /api/points.js (CommonJS version)
 
-export const config = {
-  api: {
-    bodyParser: true,
-  },
-};
+const { createClient } = require("@supabase/supabase-js");
 
+// If you're using a platform like Next.js, you might not need this config object.
+// But if you do, uncomment and export it as needed:
+// exports.config = {
+//   api: {
+//     bodyParser: true,
+//   },
+// };
+
+// Create Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-export default async function handler(req, res) {
+async function pointsHandler(req, res) {
   console.log("🔥 /api/points was hit:", req.body);
 
   if (req.method !== "POST") {
@@ -30,7 +34,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Missing or invalid player or line" });
   }
 
-  // If not provided by the user, set a fallback
+  // Fallbacks if not provided
   if (!opponentAbbr) {
     console.warn("No 'opponentAbbr' provided; defaulting to 'MIA'");
     opponentAbbr = "MIA";
@@ -45,9 +49,7 @@ export default async function handler(req, res) {
   const lastName = lastParts.join(" ");
 
   try {
-    // --------------------------------------------
     // 1) Look up the player
-    // --------------------------------------------
     const { data: playerRow, error: playerErr } = await supabase
       .from("players")
       .select("player_id, team_id")
@@ -72,12 +74,12 @@ export default async function handler(req, res) {
         .json({ error: "Invalid player data: missing player_id or team_id" });
     }
 
-    // Collect all insights here
+    // We'll store all our insights in one object
     const insights = {};
 
-    // --------------------------------------------
+    // ----------------------------------------------------------------
     // INSIGHT #1: Last 10-Game Hit Rate
-    // --------------------------------------------
+    // ----------------------------------------------------------------
     try {
       const { data: last10Stats, error: e1 } = await supabase
         .from("player_stats")
@@ -107,9 +109,9 @@ export default async function handler(req, res) {
       insights.insight_1_hit_rate = `Error: ${err.message}`;
     }
 
-    // --------------------------------------------
-    // INSIGHT #2: Season Average vs Last 3 Games
-    // --------------------------------------------
+    // ----------------------------------------------------------------
+    // INSIGHT #2: Season Average vs. Last 3
+    // ----------------------------------------------------------------
     try {
       // Entire season
       const { data: seasonStats, error: e2a } = await supabase
@@ -151,9 +153,9 @@ export default async function handler(req, res) {
       insights.insight_2_season_vs_last3 = `Error: ${err.message}`;
     }
 
-    // --------------------------------------------
-    // INSIGHT #3: Positional Defense (PG vs Miami)
-    // --------------------------------------------
+    // ----------------------------------------------------------------
+    // INSIGHT #3: Positional Defense Rankings (PG vs. Miami)
+    // ----------------------------------------------------------------
     try {
       const { data: precompRows, error: precompErr } = await supabase
         .from("positional_defense_rankings")
@@ -165,15 +167,15 @@ export default async function handler(req, res) {
       if (precompErr) throw precompErr;
 
       insights.insight_3_positional_defense = precompRows;
-      console.log("✅ insight_3_positional_defense (PG vs MIA) fetched");
+      console.log("✅ insight_3_positional_defense (PG vs. Miami) fetched");
     } catch (err) {
       console.error("❌ Error in insight_3_positional_defense:", err);
       insights.insight_3_positional_defense = `Error: ${err.message}`;
     }
 
-    // --------------------------------------------
-    // INSIGHT #4: Home vs Away Performance
-    // --------------------------------------------
+    // ----------------------------------------------------------------
+    // INSIGHT #4: Home vs. Away Performance
+    // ----------------------------------------------------------------
     try {
       // HOME game IDs
       const { data: homeGames, error: e4a } = await supabase
@@ -183,7 +185,7 @@ export default async function handler(req, res) {
       if (e4a) throw e4a;
       const homeIDs = homeGames.map((g) => g.id).filter(Boolean);
 
-      // home stats
+      // Stats in home games
       const { data: homeStats, error: e4b } = await supabase
         .from("player_stats")
         .select("pts, min")
@@ -205,7 +207,7 @@ export default async function handler(req, res) {
       if (e4c) throw e4c;
       const awayIDs = awayGames.map((g) => g.id).filter(Boolean);
 
-      // away stats
+      // Stats in away games
       const { data: awayStats, error: e4d } = await supabase
         .from("player_stats")
         .select("pts, min")
@@ -229,11 +231,187 @@ export default async function handler(req, res) {
       insights.insight_4_home_vs_away = `Error: ${err.message}`;
     }
 
-    // --------------------------------------------
+    // ----------------------------------------------------------------
     // INSIGHT #5: Matchup History vs. Specific Opponent
-    // (Band-aid: skip rows with "null" in integer columns)
-    // --------------------------------------------
+    // (Skipping rows that have "null" in integer columns)
+    // ----------------------------------------------------------------
     try {
-      // 1) Fetch the player's stats
+      // 1) fetch player's stats
       const { data: rawPlayerGames, error: e5a } = await supabase
-        .from("player
+        .from("player_stats")
+        .select("game_id, game_date, pts")
+        .eq("player_id", player_id)
+        .neq("pts", null)
+        .order("game_date", { ascending: false });
+      if (e5a) throw e5a;
+
+      // skip any row with 'null' for game_id
+      const playerGames = rawPlayerGames.filter(
+        (pg) => pg.game_id !== "null" && typeof pg.game_id === "number"
+      );
+
+      // 2) Opponent team(s)
+      const { data: rawOppTeams, error: e5b } = await supabase
+        .from("teams")
+        .select("id, abbreviation")
+        .ilike("abbreviation", opponentAbbr);
+      if (e5b) throw e5b;
+
+      // skip any row with 'null' for team id
+      const oppTeams = rawOppTeams.filter(
+        (t) => t.id !== "null" && typeof t.id === "number"
+      );
+      if (!oppTeams || oppTeams.length === 0) {
+        throw new Error(`No valid team found with abbreviation ${opponentAbbr}`);
+      }
+      const oppTeamIds = oppTeams.map((t) => t.id);
+
+      // 3) get relevant games
+      const gameIds = playerGames.map((g) => g.game_id);
+      const { data: rawGames, error: e5c } = await supabase
+        .from("games")
+        .select("id, home_team_id, visitor_team_id, date")
+        .in("id", gameIds);
+      if (e5c) throw e5c;
+
+      // skip rows with 'null' for id, home_team_id, or visitor_team_id
+      const fullGames = rawGames.filter(
+        (gm) =>
+          gm.id !== "null" &&
+          typeof gm.id === "number" &&
+          gm.home_team_id !== "null" &&
+          typeof gm.home_team_id === "number" &&
+          gm.visitor_team_id !== "null" &&
+          typeof gm.visitor_team_id === "number"
+      );
+
+      // filter to only those with home_team_id or visitor_team_id in oppTeamIds
+      const relevantGameIds = new Set(
+        fullGames
+          .filter(
+            (gm) =>
+              oppTeamIds.includes(gm.home_team_id) ||
+              oppTeamIds.includes(gm.visitor_team_id)
+          )
+          .map((g) => g.id)
+      );
+
+      // build a map for team abbreviations
+      const { data: rawAllTeams, error: e5d } = await supabase
+        .from("teams")
+        .select("id, abbreviation");
+      if (e5d) throw e5d;
+
+      const allTeams = rawAllTeams.filter(
+        (tt) => tt.id !== "null" && typeof tt.id === "number"
+      );
+
+      const teamAbbrMap = {};
+      allTeams.forEach((t) => {
+        teamAbbrMap[t.id] = t.abbreviation || "??";
+      });
+
+      // build game => "ABC vs XYZ" map
+      const gameMap = {};
+      fullGames.forEach((g) => {
+        const homeAb = teamAbbrMap[g.home_team_id] || "??";
+        const visitorAb = teamAbbrMap[g.visitor_team_id] || "??";
+        gameMap[g.id] = `${homeAb} vs ${visitorAb}`;
+      });
+
+      // final array
+      const matchupHistory = playerGames
+        .filter((pg) => relevantGameIds.has(pg.game_id))
+        .map((pg) => ({
+          game_date: pg.game_date,
+          matchup: gameMap[pg.game_id] || "",
+          points_scored: pg.pts,
+        }));
+
+      insights.insight_5_matchup_history = matchupHistory;
+      console.log("✅ insight_5_matchup_history computed");
+    } catch (err) {
+      console.error("❌ Error in insight_5_matchup_history:", err);
+      insights.insight_5_matchup_history = `Error: ${err.message}`;
+    }
+
+    // ----------------------------------------------------------------
+    // INSIGHT #6: Injury Report – Key Player Absences
+    // ----------------------------------------------------------------
+    try {
+      const { data: injTeam, error: i6a } = await supabase
+        .from("teams")
+        .select("id, abbreviation")
+        .ilike("abbreviation", teamAbbrForInjuries)
+        .maybeSingle();
+      if (i6a) throw i6a;
+      if (!injTeam) {
+        throw new Error(
+          `No team found with abbreviation ${teamAbbrForInjuries}`
+        );
+      }
+
+      const { data: rawInjuries, error: i6b } = await supabase
+        .from("player_injuries")
+        .select(
+          "player_id, first_name, last_name, position, status, return_date, description"
+        )
+        .eq("team_id", injTeam.id);
+      if (i6b) throw i6b;
+
+      const outPlayers = [];
+      for (const inj of rawInjuries) {
+        if (!inj.return_date) {
+          // indefinite
+          outPlayers.push(inj);
+          continue;
+        }
+
+        const returnStr = `${inj.return_date} 2025`; // example year
+        const potentialReturn = new Date(returnStr);
+        if (isNaN(potentialReturn.getTime())) {
+          outPlayers.push(inj);
+          continue;
+        }
+
+        const isoDate = potentialReturn.toISOString().slice(0, 10);
+        const { data: recentGames, error: i6c } = await supabase
+          .from("player_stats")
+          .select("game_date")
+          .eq("player_id", inj.player_id)
+          .gte("game_date", isoDate);
+        if (i6c) {
+          console.error("Error checking stats for inj:", inj.player_id);
+          outPlayers.push(inj);
+          continue;
+        }
+
+        if (!recentGames || recentGames.length === 0) {
+          outPlayers.push(inj);
+        }
+      }
+
+      insights.insight_6_injury_report = outPlayers.map((x) => ({
+        player_id: x.player_id,
+        player_name: `${x.first_name} ${x.last_name}`.trim(),
+        position: x.position,
+        status: x.status,
+        return_date: x.return_date,
+        description: x.description,
+      }));
+      console.log("✅ insight_6_injury_report computed");
+    } catch (err) {
+      console.error("❌ Error in insight_6_injury_report:", err);
+      insights.insight_6_injury_report = `Error: ${err.message}`;
+    }
+
+    // Return everything
+    return res.status(200).json({ player, line, insights });
+  } catch (err) {
+    console.error("❌ Unhandled error in /api/points:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+// Export in CommonJS style
+module.exports = pointsHandler;
