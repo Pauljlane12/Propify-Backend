@@ -13,11 +13,7 @@ async function pointsHandler(req, res) {
     return res.status(405).json({ error: "Only POST requests allowed" });
   }
 
-  let {
-    player,
-    line,
-    teamAbbrForInjuries,
-  } = req.body;
+  let { player, line, teamAbbrForInjuries } = req.body;
 
   if (!player || typeof line !== "number") {
     return res.status(400).json({ error: "Missing or invalid player or line" });
@@ -169,9 +165,15 @@ async function pointsHandler(req, res) {
 
     // Advanced Metric #1: Projected Game Pace
     try {
+      const { data: teamMeta } = await supabase
+        .from("teams")
+        .select("id, abbreviation");
+
+      const teamIdToAbbr = Object.fromEntries((teamMeta || []).map(t => [t.id, t.abbreviation || ""]));
+
       const { data: recentPace } = await supabase
         .from("advanced_stats")
-        .select("team_id, team_abbreviation, pace")
+        .select("team_id, pace")
         .in("team_id", [team_id, opponentTeamId]);
 
       const grouped = {};
@@ -183,7 +185,7 @@ async function pointsHandler(req, res) {
       const teamPaces = Object.entries(grouped).map(([id, list]) => {
         return {
           team_id: +id,
-          abbreviation: list[0]?.team_abbreviation || "",
+          abbreviation: teamIdToAbbr[+id] || "",
           avg_pace: list.length ? list.reduce((a, b) => a + b, 0) / list.length : null,
         };
       });
@@ -204,33 +206,41 @@ async function pointsHandler(req, res) {
       insights.advanced_metric_1_projected_game_pace = { error: err.message };
     }
 
-    // Advanced Metric #2: Opponent Pace Rank
+    // Advanced Metric #2: Opponent Team Pace Rank
     try {
       const { data: allPaces } = await supabase
         .from("advanced_stats")
-        .select("team_id, team_abbreviation, pace")
-        .not("pace", "is", null);
+        .select("team_id, pace");
 
-      const teamPaceMap = {};
+      const grouped = {};
       for (const row of allPaces || []) {
-        if (!teamPaceMap[row.team_id]) teamPaceMap[row.team_id] = [];
-        teamPaceMap[row.team_id].push(row.pace);
+        if (!grouped[row.team_id]) grouped[row.team_id] = [];
+        if (row.pace !== null) grouped[row.team_id].push(row.pace);
       }
 
-      const ranked = Object.entries(teamPaceMap).map(([id, list]) => {
+      const teamIdToAbbr = Object.fromEntries(
+        (await supabase.from("teams").select("id, abbreviation")).data.map(t => [t.id, t.abbreviation])
+      );
+
+      const ranked = Object.entries(grouped).map(([id, list]) => {
         return {
           team_id: +id,
-          avg_pace: list.reduce((a, b) => a + b, 0) / list.length,
-          abbreviation: list[0]?.team_abbreviation || ""
+          abbreviation: teamIdToAbbr[+id] || "",
+          avg_possessions_per_game: (list.reduce((a, b) => a + b, 0) / list.length).toFixed(2)
         };
-      }).sort((a, b) => b.avg_pace - a.avg_pace);
+      }).sort((a, b) => b.avg_possessions_per_game - a.avg_possessions_per_game);
 
       ranked.forEach((team, idx) => team.pace_rank = idx + 1);
 
       const opponentPace = ranked.find(t => t.team_id === opponentTeamId);
-      insights.advanced_metric_2_opponent_pace_rank = opponentPace || {
-        error: "Opponent pace rank not found",
-      };
+      insights.advanced_metric_2_opponent_pace_rank = opponentPace
+        ? {
+            pace_rank: opponentPace.pace_rank,
+            avg_possessions_per_game: opponentPace.avg_possessions_per_game
+          }
+        : {
+            error: "Opponent pace rank not found"
+          };
     } catch (err) {
       insights.advanced_metric_2_opponent_pace_rank = { error: err.message };
     }
