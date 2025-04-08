@@ -1,11 +1,11 @@
 // /api/points-query.js
-const { createClient } = require("@supabase/supabase-js");
 const { OpenAI } = require("openai");
+const { Pool } = require("pg");
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+// Setup Postgres client using the connection string
+const pool = new Pool({
+  connectionString: process.env.SUPABASE_DB_CONNECTION_STRING,
+});
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -47,8 +47,7 @@ Return the game_date, matchup label (e.g., LAL vs MIA), and pts. Use tables: pla
     });
 
     const matchupSQL = matchupQuery.choices[0].message.content.trim();
-    const { data: matchupResult, error: matchupErr } = await supabase.rpc("query_via_sql", { sql: matchupSQL });
-    if (matchupErr) throw matchupErr;
+    const { rows: matchupResult } = await pool.query(matchupSQL);
     insights.insight_6_matchup_history = matchupResult;
   } catch (err) {
     console.error("❌ Insight 6 error:", err.message);
@@ -77,8 +76,7 @@ Use box_scores, games, and active_players. Use the possessions formula: fga + 0.
     });
 
     const defenseSQL = defenseQuery.choices[0].message.content.trim();
-    const { data: defenseResult, error: defenseErr } = await supabase.rpc("query_via_sql", { sql: defenseSQL });
-    if (defenseErr) throw defenseErr;
+    const { rows: defenseResult } = await pool.query(defenseSQL);
     insights.advanced_metric_3_last5_defense = defenseResult;
   } catch (err) {
     console.error("❌ Advanced Metric 3 error:", err.message);
