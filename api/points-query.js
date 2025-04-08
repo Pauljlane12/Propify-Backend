@@ -9,6 +9,21 @@ const pool = new Pool({
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+function cleanGPTSQL(response) {
+  let sql = response.trim();
+
+  // Remove code block wrappers like ```sql ... ```
+  sql = sql.replace(/.*```sql\s*/i, '').replace(/```$/, '').trim();
+
+  // If GPT still adds explanation, start from WITH or SELECT
+  const firstKeyword = sql.search(/\b(WITH|SELECT)\b/i);
+  if (firstKeyword > 0) {
+    sql = sql.slice(firstKeyword);
+  }
+
+  return sql;
+}
+
 async function pointsQueryHandler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Only POST requests allowed" });
@@ -46,11 +61,18 @@ Return the game_date, matchup label (e.g., LAL vs MIA), and pts. Use tables: pla
       ]
     });
 
-    const matchupSQL = matchupQuery.choices[0].message.content.trim();
+    const rawMatchupSQL = matchupQuery.choices[0].message.content;
+    const matchupSQL = cleanGPTSQL(rawMatchupSQL);
+
+    if (process.env.DEBUG_MODE === "true") {
+      console.log("🧠 RAW GPT SQL (Matchup):", rawMatchupSQL);
+      console.log("✅ CLEANED SQL (Matchup):", matchupSQL);
+    }
+
     const { rows: matchupResult } = await pool.query(matchupSQL);
     insights.insight_6_matchup_history = matchupResult;
   } catch (err) {
-    console.error("❌ Insight 6 error:", err.message);
+    console.error("❌ Insight 6 FULL ERROR:", err);
     insights.insight_6_matchup_history = { error: err.message };
   }
 
@@ -75,11 +97,18 @@ Use box_scores, games, and active_players. Use the possessions formula: fga + 0.
       ]
     });
 
-    const defenseSQL = defenseQuery.choices[0].message.content.trim();
+    const rawDefenseSQL = defenseQuery.choices[0].message.content;
+    const defenseSQL = cleanGPTSQL(rawDefenseSQL);
+
+    if (process.env.DEBUG_MODE === "true") {
+      console.log("🧠 RAW GPT SQL (Defense):", rawDefenseSQL);
+      console.log("✅ CLEANED SQL (Defense):", defenseSQL);
+    }
+
     const { rows: defenseResult } = await pool.query(defenseSQL);
     insights.advanced_metric_3_last5_defense = defenseResult;
   } catch (err) {
-    console.error("❌ Advanced Metric 3 error:", err.message);
+    console.error("❌ Advanced Metric 3 FULL ERROR:", err);
     insights.advanced_metric_3_last5_defense = { error: err.message };
   }
 
