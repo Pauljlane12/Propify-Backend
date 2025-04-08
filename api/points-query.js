@@ -93,7 +93,7 @@ Avoid non-existent columns like "player_name". Use only real ones.
 
 Steps:
 1. Find the last 5 finalized games played by ${opponentAbbr}
-2. For each game, sum up `pts` for all players whose position = ${player}'s true_position and who played against ${opponentAbbr}
+2. For each game, sum up "pts" for all players whose position = ${player}'s true_position and who played against ${opponentAbbr}
 3. Return average points allowed across those 5 games.
 `;
 
