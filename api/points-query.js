@@ -8,21 +8,40 @@ const pool = new Pool({
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-function cleanGPTSQL(response) {
+// Helper to fix common GPT mistakes
+function fixCommonGPTBugs(sql, opponentAbbr) {
+  // 1) If GPT references g.game_date, we switch to ps.game_date
+  //    or you can choose 'g.date' if you want the column from games
+  sql = sql.replace(/\bg\.game_date\b/g, 'ps.game_date');
+
+  // 2) If GPT writes team_id = 'SAS' (or 'MIA', etc.), convert it to subselect
+  // Build a generic regex for: team_id = '[ABB]'
+  // We'll handle strings of 2-4 letters (SAS, MIA, LAL, etc.)
+  const teamIdRegex = /team_id\s*=\s*'([A-Z]{2,4})'/gi;
+
+  sql = sql.replace(teamIdRegex, (match, abbr) => {
+    return `team_id = (SELECT id FROM teams WHERE abbreviation='${abbr}')`;
+  });
+
+  return sql;
+}
+
+function cleanGPTSQL(response, opponentAbbr) {
   let sql = response.trim();
 
-  // Extract SQL from triple backticks if present
+  // 1) Extract from triple backticks if present
   const match = sql.match(/```sql\s*([\s\S]*?)```/i);
-  if (match) {
-    sql = match[1].trim();
-  }
+  if (match) sql = match[1].trim();
 
-  // Remove any remaining backticks
+  // 2) Remove leftover backticks
   sql = sql.replace(/```/g, '').trim();
 
-  // Start at SELECT or WITH
+  // 3) Start at SELECT or WITH
   const start = sql.search(/\b(WITH|SELECT)\b/i);
   if (start > 0) sql = sql.slice(start);
+
+  // 4) Force fix GPT mistakes:
+  sql = fixCommonGPTBugs(sql, opponentAbbr);
 
   return sql.trim();
 }
@@ -40,50 +59,35 @@ async function pointsQueryHandler(req, res) {
 
   const insights = {};
 
-  // Break the player name into first + last
-  const [firstName, ...lastParts] = player.trim().split(" ");
-  const lastName = lastParts.join(" ");
-
   try {
-    // ----------------------------------------------
-    // Insight #6: Matchup History vs Opponent
-    // ----------------------------------------------
+    // -----------------
+    // Insight #6
+    // -----------------
     const matchupPrompt = `
-Write a PostgreSQL query to show how many points ${player} has scored against team abbreviation='${opponentAbbr}' in past matchups.
+Write a PostgreSQL query to show how many points ${player} has scored 
+against team abbreviation='${opponentAbbr}' in past matchups.
 
-Schema details:
-- The "games" table has: (id, date, status, home_team_id, visitor_team_id) -> column name is "date", not "game_date"
-- The "player_stats" table has: (pts, game_id, game_date)
-- The "teams" table has: (id, abbreviation)
-- "team_id" is an integer; to filter by abbreviation='${opponentAbbr}', you must do something like "team_id = (SELECT id FROM teams WHERE abbreviation='${opponentAbbr}')"
+- "games": (id, date, status, home_team_id, visitor_team_id) -> 'date' is the column, not 'game_date'
+- "player_stats": (pts, game_date, game_id)
+- "teams": (id, abbreviation)
+- "team_id" is integer, do subselect if you want to filter by abbreviation.
 
-Return these fields:
-- ps.game_date (the date from player_stats, i.e. ps.game_date)
-- A matchup label (like "LAL vs MIA")
-- ps.pts
-Order by ps.game_date DESC.
-
-DO NOT reference columns that don't exist, e.g. g.game_date. If you want the "games" table date, it's "g.date".
+Return ps.game_date, a matchup label, and ps.pts. Order by ps.game_date DESC.
 `;
-
 
     const matchupQuery = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
       messages: [
         {
           role: "system",
-          content:
-            "You are a SQL assistant. Use only valid columns based on the user's schema."
+          content: "You are a SQL assistant. Use only valid columns from the user's schema."
         },
-        {
-          role: "user",
-          content: matchupPrompt
-        }
+        { role: "user", content: matchupPrompt }
       ]
     });
 
     const rawMatchupSQL = matchupQuery.choices[0].message.content;
-    const matchupSQL = cleanGPTSQL(rawMatchupSQL);
+    const matchupSQL = cleanGPTSQL(rawMatchupSQL, opponentAbbr);
 
     if (process.env.DEBUG_MODE === "true") {
       console.log("🧠 Matchup SQL RAW:", rawMatchupSQL);
@@ -98,26 +102,19 @@ DO NOT reference columns that don't exist, e.g. g.game_date. If you want the "ga
   }
 
   try {
-    // -------------------------------------------------
-    // Advanced Metric #3: Last 5 Games vs Position
-    // -------------------------------------------------
+    // -----------------
+    // Advanced Metric #3
+    // -----------------
     const defensePrompt = `
-Write a PostgreSQL query to calculate how many points the team with abbreviation='${opponentAbbr}' has allowed to players at the same position as ${player}'s true_position in the last 5 final games.
+Write a PostgreSQL query to calculate how many points abbreviation='${opponentAbbr}' 
+has allowed to players at the same position as ${player}'s true_position in the last 5 final games.
 
-Schema details:
 - "games": (id, date, status, home_team_id, visitor_team_id)
 - "box_scores": (player_id, pts, team_id, game_date, min)
 - "active_players": (player_id, true_position)
-- "team_id" is an integer. For abbreviation='${opponentAbbr}', do "team_id = (SELECT id FROM teams WHERE abbreviation='${opponentAbbr}')"
-- If referencing the games table's date, it's "g.date", not g.game_date.
+- If you filter by team_id from abbreviation='${opponentAbbr}', do subselect.
 
-Steps:
-1. Identify the last 5 games for the team whose abbreviation='${opponentAbbr}' with status='Final'
-2. For each game, sum pts for all players whose true_position = ${player}'s true_position
-3. Return the average points allowed across those 5 games.
-
-Do not reference columns that don't exist, like g.game_date or player_name.
-Use subselects or joins to handle abbreviation -> integer team_id.
+Return average points allowed. Avoid referencing columns that don't exist (like g.game_date).
 `;
 
     const defenseQuery = await openai.chat.completions.create({
@@ -125,18 +122,14 @@ Use subselects or joins to handle abbreviation -> integer team_id.
       messages: [
         {
           role: "system",
-          content:
-            "You are a SQL assistant. Use only valid columns based on the user's schema."
+          content: "You are a SQL assistant. Use only valid columns from the user's schema."
         },
-        {
-          role: "user",
-          content: defensePrompt
-        }
+        { role: "user", content: defensePrompt }
       ]
     });
 
     const rawDefenseSQL = defenseQuery.choices[0].message.content;
-    const defenseSQL = cleanGPTSQL(rawDefenseSQL);
+    const defenseSQL = cleanGPTSQL(rawDefenseSQL, opponentAbbr);
 
     if (process.env.DEBUG_MODE === "true") {
       console.log("🧠 Defense SQL RAW:", rawDefenseSQL);
