@@ -8,19 +8,26 @@ const pool = new Pool({
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Helper to fix common GPT mistakes
-function fixCommonGPTBugs(sql, opponentAbbr) {
-  // 1) If GPT references g.game_date, we switch to ps.game_date
-  //    or you can choose 'g.date' if you want the column from games
-  sql = sql.replace(/\bg\.game_date\b/g, 'ps.game_date');
+// Helper to fix known GPT mistakes thoroughly
+function fixCommonGPTBugs(sql, usePlayerStatsDate = false) {
+  // 1) If GPT references "g.game_date", we have two possible replacements:
+  //    A) If you want them using the games table:   => "g.date"
+  //    B) If you prefer them using player_stats:    => "ps.game_date"
+  const replacement = usePlayerStatsDate ? 'ps.game_date' : 'g.date';
+  sql = sql.replace(/\bg\.game_date\b/g, replacement);
 
   // 2) If GPT writes team_id = 'SAS' (or 'MIA', etc.), convert it to subselect
-  // Build a generic regex for: team_id = '[ABB]'
-  // We'll handle strings of 2-4 letters (SAS, MIA, LAL, etc.)
-  const teamIdRegex = /team_id\s*=\s*'([A-Z]{2,4})'/gi;
-
+  //    We'll handle strings of 2-4 letters in uppercase
+  const teamIdRegex = /team_id\s*=\s*'([A-Z]{2,4})'/g;
   sql = sql.replace(teamIdRegex, (match, abbr) => {
     return `team_id = (SELECT id FROM teams WHERE abbreviation='${abbr}')`;
+  });
+
+  // 3) If GPT might do home_team_id = 'MIA' or visitor_team_id = 'BOS'
+  //    we can also patch those if you want:
+  const altTeamIdRegex = /\b(home_team_id|visitor_team_id)\s*=\s*'([A-Z]{2,4})'/g;
+  sql = sql.replace(altTeamIdRegex, (match, col, abbr) => {
+    return `${col} = (SELECT id FROM teams WHERE abbreviation='${abbr}')`;
   });
 
   return sql;
@@ -41,7 +48,8 @@ function cleanGPTSQL(response, opponentAbbr) {
   if (start > 0) sql = sql.slice(start);
 
   // 4) Force fix GPT mistakes:
-  sql = fixCommonGPTBugs(sql, opponentAbbr);
+  //    Pass "true" if you'd rather everything use "ps.game_date" instead of "g.date"
+  sql = fixCommonGPTBugs(sql, false);
 
   return sql.trim();
 }
@@ -52,7 +60,6 @@ async function pointsQueryHandler(req, res) {
   }
 
   const { player, opponentAbbr } = req.body;
-
   if (!player || !opponentAbbr) {
     return res.status(400).json({ error: "Missing player or opponentAbbr" });
   }
@@ -60,9 +67,7 @@ async function pointsQueryHandler(req, res) {
   const insights = {};
 
   try {
-    // -----------------
     // Insight #6
-    // -----------------
     const matchupPrompt = `
 Write a PostgreSQL query to show how many points ${player} has scored 
 against team abbreviation='${opponentAbbr}' in past matchups.
@@ -73,7 +78,7 @@ against team abbreviation='${opponentAbbr}' in past matchups.
 - "team_id" is integer, do subselect if you want to filter by abbreviation.
 
 Return ps.game_date, a matchup label, and ps.pts. Order by ps.game_date DESC.
-`;
+    `;
 
     const matchupQuery = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
@@ -102,9 +107,7 @@ Return ps.game_date, a matchup label, and ps.pts. Order by ps.game_date DESC.
   }
 
   try {
-    // -----------------
     // Advanced Metric #3
-    // -----------------
     const defensePrompt = `
 Write a PostgreSQL query to calculate how many points abbreviation='${opponentAbbr}' 
 has allowed to players at the same position as ${player}'s true_position in the last 5 final games.
@@ -115,7 +118,7 @@ has allowed to players at the same position as ${player}'s true_position in the 
 - If you filter by team_id from abbreviation='${opponentAbbr}', do subselect.
 
 Return average points allowed. Avoid referencing columns that don't exist (like g.game_date).
-`;
+    `;
 
     const defenseQuery = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
