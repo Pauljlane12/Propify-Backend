@@ -107,13 +107,15 @@ async function pointsHandler(req, res) {
     }
 
     // Insight 3: Positional Defense
+    let playerPosition = fallbackPosition || "PG";
     try {
       const { data: activeRow } = await supabase
         .from("active_players")
         .select("true_position")
         .eq("player_id", player_id)
         .maybeSingle();
-      const playerPosition = activeRow?.true_position || fallbackPosition || "PG";
+      playerPosition = activeRow?.true_position || fallbackPosition || "PG";
+
       const { data: defenseRankings } = await supabase
         .from("positional_defense_rankings")
         .select("*")
@@ -170,87 +172,6 @@ async function pointsHandler(req, res) {
         .select("id, date, status, home_team_id, visitor_team_id")
         .eq("status", "Final");
 
-      const gameMap = {};
-      finalGames.forEach((g) => (gameMap[g.id] = g));
-
-      const { data: finalBox } = await supabase
-        .from("box_scores")
-        .select("team_id, game_date, player_id, fga, fta, oreb, turnover")
-        .in("game_date", finalGames.map((g) => g.date));
-
-      const posMap = {};
-      for (const row of finalBox || []) {
-        const gameRecord = finalGames.find(
-          (g) =>
-            g.date === row.game_date &&
-            (g.home_team_id === row.team_id || g.visitor_team_id === row.team_id)
-        );
-        if (!gameRecord) continue;
-        const key = `${row.team_id}_${gameRecord.id}`;
-        if (!posMap[key]) {
-          posMap[key] = {
-            team_id: row.team_id,
-            game_id: gameRecord.id,
-            possessions: 0,
-          };
-        }
-        const fga = row.fga || 0;
-        const fta = row.fta || 0;
-        const oreb = row.oreb || 0;
-        const to = row.turnover || 0;
-        posMap[key].possessions += fga + 0.44 * fta - oreb + to;
-      }
-
-      const teamPosTotals = {};
-      Object.values(posMap).forEach(({ team_id, possessions }) => {
-        if (!teamPosTotals[team_id]) {
-          teamPosTotals[team_id] = { sum: 0, count: 0 };
-        }
-        teamPosTotals[team_id].sum += possessions;
-        teamPosTotals[team_id].count += 1;
-      });
-
-      const { data: teamMeta } = await supabase
-        .from("teams")
-        .select("id, abbreviation");
-
-      const abbrToId = {};
-      const idToAbbr = {};
-      teamMeta.forEach((t) => {
-        abbrToId[t.abbreviation] = t.id;
-        idToAbbr[t.id] = t.abbreviation;
-      });
-
-      const t1Id = team_id;
-      const t2Id = opponentTeamId;
-
-      const t1Avg =
-        teamPosTotals[t1Id] && teamPosTotals[t1Id].count > 0
-          ? teamPosTotals[t1Id].sum / teamPosTotals[t1Id].count
-          : 0;
-      const t2Avg =
-        teamPosTotals[t2Id] && teamPosTotals[t2Id].count > 0
-          ? teamPosTotals[t2Id].sum / teamPosTotals[t2Id].count
-          : 0;
-
-      const projected_game_pace = +((t1Avg + t2Avg) / 2).toFixed(2);
-
-      insights.advanced_metric_1_projected_game_pace = {
-        team_1: idToAbbr[t1Id] || "??",
-        team_2: idToAbbr[t2Id] || "??",
-        projected_game_pace,
-      };
-    } catch (err) {
-      insights.advanced_metric_1_projected_game_pace = { error: err.message };
-    }
-
-    // Advanced Metric #2: Team Pace Rankings
-    try {
-      const { data: finalGames } = await supabase
-        .from("games")
-        .select("id, date, status, home_team_id, visitor_team_id")
-        .eq("status", "Final");
-
       const { data: finalBox } = await supabase
         .from("box_scores")
         .select("team_id, game_date, fga, fta, oreb, turnover")
@@ -258,13 +179,13 @@ async function pointsHandler(req, res) {
 
       const posMap = {};
       for (const row of finalBox || []) {
-        const gm = finalGames.find(
+        const game = finalGames.find(
           (g) =>
             g.date === row.game_date &&
             (g.home_team_id === row.team_id || g.visitor_team_id === row.team_id)
         );
-        if (!gm) continue;
-        const key = `${row.team_id}_${gm.id}`;
+        if (!game) continue;
+        const key = `${row.team_id}_${game.id}`;
         if (!posMap[key]) posMap[key] = { team_id: row.team_id, possessions: 0 };
         posMap[key].possessions += (row.fga || 0) + 0.44 * (row.fta || 0) - (row.oreb || 0) + (row.turnover || 0);
       }
@@ -277,31 +198,34 @@ async function pointsHandler(req, res) {
       });
 
       const { data: teamMeta } = await supabase.from("teams").select("id, abbreviation");
-      const ranked = Object.entries(teamTotals).map(([id, { sum, count }]) => ({
-        team_id: +id,
-        abbreviation: teamMeta.find((t) => t.id === +id)?.abbreviation || "??",
-        avg_possessions_per_game: +(sum / count).toFixed(2),
-      })).sort((a, b) => b.avg_possessions_per_game - a.avg_possessions_per_game);
+      const idToAbbr = {};
+      teamMeta.forEach((t) => idToAbbr[t.id] = t.abbreviation);
 
-      ranked.forEach((team, idx) => (team.pace_rank = idx + 1));
+      const t1Avg = teamTotals[team_id]?.sum / teamTotals[team_id]?.count || 0;
+      const t2Avg = teamTotals[opponentTeamId]?.sum / teamTotals[opponentTeamId]?.count || 0;
 
-      const opponentStats = ranked.find((t) => t.team_id === opponentTeamId);
-      insights.advanced_metric_2_opponent_pace_rank = opponentStats || {
-        error: "Opponent pace rank not found",
+      insights.advanced_metric_1_projected_game_pace = {
+        team_1: idToAbbr[team_id] || "??",
+        team_2: idToAbbr[opponentTeamId] || "??",
+        projected_game_pace: +((t1Avg + t2Avg) / 2).toFixed(2),
       };
+    } catch (err) {
+      insights.advanced_metric_1_projected_game_pace = { error: err.message };
+    }
+
+    // Advanced Metric #2: Team Pace Rankings
+    try {
+      const ranked = Object.entries(insights.advanced_metric_1_projected_game_pace || {}).map((entry, idx) => ({
+        team: entry[0],
+        pace: entry[1],
+        rank: idx + 1
+      }));
+      insights.advanced_metric_2_opponent_pace_rank = ranked.find(t => t.team === idToAbbr[opponentTeamId]) || {};
     } catch (err) {
       insights.advanced_metric_2_opponent_pace_rank = { error: err.message };
     }
 
-    return res.status(200).json({ player, line, insights });
-  } catch (err) {
-    console.error("❌ Unhandled error in /api/points:", err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-}
-
-module.exports = pointsHandler;
-  // ✅ Advanced Metric #3: Points Allowed by Position (Last 5 Games)
+    // ✅ Advanced Metric #3: Points Allowed by Position (Last 5 Games)
     try {
       const { data: recentDefense } = await supabase
         .from("positional_defense_last5")
