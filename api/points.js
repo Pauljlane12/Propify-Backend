@@ -20,11 +20,14 @@ async function pointsHandler(req, res) {
 
   if (!teamAbbrForInjuries) teamAbbrForInjuries = "LAL";
 
+  // Split first & last name
   const [firstName, ...lastParts] = player.trim().split(" ");
   const lastName = lastParts.join(" ");
 
   try {
+    // -----------------------------
     // (1) Identify the Player
+    // -----------------------------
     const { data: playerRow } = await supabase
       .from("players")
       .select("player_id, team_id, position")
@@ -39,7 +42,9 @@ async function pointsHandler(req, res) {
     const { player_id, team_id, position: fallbackPosition } = playerRow;
     const insights = {};
 
-    // (2) Next game for this player's team
+    // -----------------------------
+    // (2) Next Game for this player's team
+    // -----------------------------
     const today = new Date().toISOString();
     const { data: upcomingGames } = await supabase
       .from("games")
@@ -126,9 +131,10 @@ async function pointsHandler(req, res) {
     }
 
     // -----------------------------
-    // INSIGHT 3: Positional Defense
+    // INSIGHT 3: Positional Defense (Last 5 Games)
     // -----------------------------
     try {
+      // 1) Find actual position from active_players if available
       const { data: activeRow } = await supabase
         .from("active_players")
         .select("true_position")
@@ -137,14 +143,28 @@ async function pointsHandler(req, res) {
 
       const playerPosition = activeRow?.true_position || fallbackPosition || "PG";
 
-      const { data: defenseRankings } = await supabase
-        .from("positional_defense_rankings")
-        .select("*")
+      // 2) Query your new last-5 table
+      const { data: last5Row, error: last5Error } = await supabase
+        .from("positional_defense_rankings_last5_top_minute")
+        .select("points_allowed, points_allowed_rank, games_sampled, defense_team_name")
         .eq("position", playerPosition)
-        .eq("stat_type", "pts")
-        .eq("defense_team_name", opponentTeam?.full_name);
+        .eq("defense_team_name", opponentTeam?.full_name)
+        .maybeSingle();
 
-      insights.insight_3_positional_defense = defenseRankings;
+      if (last5Error) {
+        insights.insight_3_positional_defense = { error: last5Error.message };
+      } else if (!last5Row) {
+        insights.insight_3_positional_defense = {
+          info: "No last-5 data found for this team/position.",
+        };
+      } else {
+        insights.insight_3_positional_defense = {
+          points_allowed: last5Row.points_allowed,
+          rank: last5Row.points_allowed_rank,
+          games_sampled: last5Row.games_sampled,
+          summary: `Over their last 5 games, ${playerPosition}s have averaged ${last5Row.points_allowed} PPG vs the ${last5Row.defense_team_name}, which ranks #${last5Row.points_allowed_rank} in the NBA.`,
+        };
+      }
     } catch (err) {
       insights.insight_3_positional_defense = { error: err.message };
     }
@@ -223,7 +243,7 @@ async function pointsHandler(req, res) {
       insights.insight_5_home_vs_away = { error: err.message };
     }
 
-    // (No Insight 6)
+    // (No Insight 6 here)
     // -----------------------------
     // INSIGHT 7: Injury Report
     // -----------------------------
@@ -365,6 +385,7 @@ async function pointsHandler(req, res) {
 
     // -----------------------------
     // ADVANCED Metric #3: Points Allowed by Position (Last 5)
+    // (Optional: using your old or new last-5 table, whichever you prefer)
     // -----------------------------
     try {
       const { data: activePosRow } = await supabase
@@ -375,6 +396,7 @@ async function pointsHandler(req, res) {
 
       const playerPosition = activePosRow?.true_position || fallbackPosition || "PG";
 
+      // If you have a different table for advanced "last 5" metrics, adjust here
       const { data: recentDefense } = await supabase
         .from("positional_defense_last5")
         .select("avg_allowed, games_sampled, rank")
