@@ -20,12 +20,11 @@ async function pointsHandler(req, res) {
 
   if (!teamAbbrForInjuries) teamAbbrForInjuries = "LAL";
 
-  // Split name
   const [firstName, ...lastParts] = player.trim().split(" ");
   const lastName = lastParts.join(" ");
 
   try {
-    // 1) Identify the player row
+    // (1) Identify the Player
     const { data: playerRow } = await supabase
       .from("players")
       .select("player_id, team_id, position")
@@ -40,7 +39,7 @@ async function pointsHandler(req, res) {
     const { player_id, team_id, position: fallbackPosition } = playerRow;
     const insights = {};
 
-    // 2) Fetch next upcoming game for this player's team
+    // (2) Next game for this player's team
     const today = new Date().toISOString();
     const { data: upcomingGames } = await supabase
       .from("games")
@@ -62,7 +61,9 @@ async function pointsHandler(req, res) {
       .eq("id", opponentTeamId)
       .maybeSingle();
 
-    // Insight 1: Last 10 Hit Rate (min >= 10)
+    // -----------------------------
+    // INSIGHT 1: Last 10 Hit Rate (≥10 min)
+    // -----------------------------
     try {
       const { data } = await supabase
         .from("player_stats")
@@ -71,8 +72,9 @@ async function pointsHandler(req, res) {
         .order("game_date", { ascending: false })
         .limit(10);
 
-      // Only keep games where min >= 10
-      const valid = (data || []).filter((g) => g.min && parseInt(g.min, 10) >= 10);
+      const valid = (data || []).filter(
+        (g) => g.min && parseInt(g.min, 10) >= 10
+      );
       const hits = valid.filter((g) => (g.pts || 0) > line).length;
 
       insights.insight_1_hit_rate = {
@@ -86,39 +88,34 @@ async function pointsHandler(req, res) {
       insights.insight_1_hit_rate = { error: err.message };
     }
 
-    // Insight 2: Season Avg vs Last 3 (all min >= 10)
+    // -----------------------------
+    // INSIGHT 2: Season Avg vs Last 3 (≥10 min)
+    // -----------------------------
     let last3Valid = [];
     try {
-      // A) Full season
-      const { data: seasonStats } = await supabase
+      // A) fetch all stats
+      const { data: allStats } = await supabase
         .from("player_stats")
-        .select("pts, min")
+        .select("pts, min, game_date")
         .eq("player_id", player_id);
 
-      const seasonValid = (seasonStats || []).filter((g) => {
+      // B) filter <10 min
+      const seasonValid = (allStats || []).filter((g) => {
         if (!g.min) return false;
-        return parseInt(g.min, 10) >= 10;
+        const parsed = parseInt(g.min, 10);
+        return !isNaN(parsed) && parsed >= 10;
       });
 
-      const seasonPtsSum = seasonValid.reduce((acc, cur) => acc + (cur.pts || 0), 0);
-      const seasonAvg =
-        seasonValid.length > 0 ? seasonPtsSum / seasonValid.length : 0;
+      // C) season average
+      const sumSeason = seasonValid.reduce((acc, cur) => acc + (cur.pts || 0), 0);
+      const seasonAvg = seasonValid.length ? sumSeason / seasonValid.length : 0;
 
-      // B) Last 3
-      const { data: last3Stats } = await supabase
-        .from("player_stats")
-        .select("pts, min")
-        .eq("player_id", player_id)
-        .order("game_date", { ascending: false })
-        .limit(3);
+      // D) sort desc by game_date, slice last 3
+      seasonValid.sort((a, b) => new Date(b.game_date) - new Date(a.game_date));
+      last3Valid = seasonValid.slice(0, 3);
 
-      last3Valid = (last3Stats || []).filter((g) => {
-        if (!g.min) return false;
-        return parseInt(g.min, 10) >= 10;
-      });
-
-      const last3Sum = last3Valid.reduce((acc, cur) => acc + (cur.pts || 0), 0);
-      const avg3 = last3Valid.length > 0 ? last3Sum / last3Valid.length : 0;
+      const sumLast3 = last3Valid.reduce((acc, cur) => acc + (cur.pts || 0), 0);
+      const avg3 = last3Valid.length ? sumLast3 / last3Valid.length : 0;
 
       insights.insight_2_season_vs_last3 = {
         seasonAvg: +seasonAvg.toFixed(1),
@@ -128,15 +125,17 @@ async function pointsHandler(req, res) {
       insights.insight_2_season_vs_last3 = { error: err.message };
     }
 
-    // Insight 3: Positional Defense
+    // -----------------------------
+    // INSIGHT 3: Positional Defense
+    // -----------------------------
     try {
-      const { data: activePosRow } = await supabase
+      const { data: activeRow } = await supabase
         .from("active_players")
         .select("true_position")
         .eq("player_id", player_id)
         .maybeSingle();
 
-      const playerPosition = activePosRow?.true_position || fallbackPosition || "PG";
+      const playerPosition = activeRow?.true_position || fallbackPosition || "PG";
 
       const { data: defenseRankings } = await supabase
         .from("positional_defense_rankings")
@@ -150,7 +149,9 @@ async function pointsHandler(req, res) {
       insights.insight_3_positional_defense = { error: err.message };
     }
 
-    // Insight 4: Matchup History (Flattened)
+    // -----------------------------
+    // INSIGHT 4: Matchup History (Flattened)
+    // -----------------------------
     try {
       const { data: matchupHistory } = await supabase
         .from("player_matchup_flat")
@@ -171,36 +172,48 @@ async function pointsHandler(req, res) {
       insights.insight_4_matchup_history = { error: err.message };
     }
 
-    // Insight 5: Home vs Away (min >= 10)
+    // -----------------------------
+    // INSIGHT 5: Home vs Away (≥10 min)
+    // -----------------------------
     try {
-      const { data: gameStats } = await supabase
+      const { data: allStats } = await supabase
         .from("player_stats")
         .select("pts, min, game_id")
         .eq("player_id", player_id);
 
-      const filteredStats = (gameStats || []).filter((g) => {
-        if (!g.min || !g.pts) return false;
-        return parseInt(g.min, 10) >= 10;
+      // filter <10 min
+      const filtered = (allStats || []).filter((g) => {
+        if (!g.min) return false;
+        return parseInt(g.min, 10) >= 10 && g.pts != null;
       });
 
-      const gameIds = filteredStats.map((g) => g.game_id).filter((id) => typeof id === "number");
-      const { data: games } = await supabase
+      // gather IDs
+      const gameIds = filtered
+        .map((x) => x.game_id)
+        .filter((id) => typeof id === "number");
+
+      const { data: gameRows } = await supabase
         .from("games")
         .select("id, home_team_id")
         .in("id", gameIds);
 
-      const gameMap = Object.fromEntries((games || []).map((gm) => [gm.id, gm.home_team_id]));
+      const gameMap = Object.fromEntries(
+        (gameRows || []).map((gm) => [gm.id, gm.home_team_id])
+      );
 
       const home = [];
       const away = [];
-
-      for (const gs of filteredStats) {
+      for (const gs of filtered) {
         const isHome = gameMap[gs.game_id] === team_id;
         (isHome ? home : away).push(gs.pts);
       }
 
-      const homeAvg = home.length ? home.reduce((a, b) => a + b, 0) / home.length : 0;
-      const awayAvg = away.length ? away.reduce((a, b) => a + b, 0) / away.length : 0;
+      const homeAvg = home.length
+        ? home.reduce((acc, cur) => acc + cur, 0) / home.length
+        : 0;
+      const awayAvg = away.length
+        ? away.reduce((acc, cur) => acc + cur, 0) / away.length
+        : 0;
 
       insights.insight_5_home_vs_away = {
         home: +homeAvg.toFixed(2),
@@ -210,8 +223,10 @@ async function pointsHandler(req, res) {
       insights.insight_5_home_vs_away = { error: err.message };
     }
 
-    // (We skip Insight 6 because it's not defined)
-    // Insight 7: Injury Report
+    // (No Insight 6)
+    // -----------------------------
+    // INSIGHT 7: Injury Report
+    // -----------------------------
     try {
       const teamIds = [team_id, opponentTeamId].filter(Boolean);
       const { data: injuries } = await supabase
@@ -226,22 +241,22 @@ async function pointsHandler(req, res) {
       insights.insight_7_injury_report = { error: err.message };
     }
 
-    // Advanced Metric #1: Projected Game Pace
+    // -----------------------------
+    // ADVANCED Metric #1: Projected Game Pace
+    // -----------------------------
     let finalGames, finalBox;
     try {
-      // Fetch final games
-      const { data: fg } = await supabase
+      const { data: g } = await supabase
         .from("games")
         .select("id, date, status, home_team_id, visitor_team_id")
         .eq("status", "Final");
-      finalGames = fg || [];
+      finalGames = g || [];
 
-      // Box scores for those final games
-      const { data: fb } = await supabase
+      const { data: b } = await supabase
         .from("box_scores")
         .select("team_id, game_date, fga, fta, oreb, turnover")
-        .in("game_date", finalGames.map((g) => g.date));
-      finalBox = fb || [];
+        .in("game_date", finalGames.map((gm) => gm.date));
+      finalBox = b || [];
 
       const posMap = {};
       for (const row of finalBox) {
@@ -286,7 +301,9 @@ async function pointsHandler(req, res) {
       insights.advanced_metric_1_projected_game_pace = { error: err.message };
     }
 
-    // Advanced Metric #2: Opponent Pace Rankings
+    // -----------------------------
+    // ADVANCED Metric #2: Team Pace Rankings
+    // -----------------------------
     let teamTotals = {};
     try {
       if (!finalGames || !finalBox) {
@@ -299,7 +316,8 @@ async function pointsHandler(req, res) {
           const foundGame = finalGames.find(
             (gm) =>
               gm.date === row.game_date &&
-              (gm.home_team_id === row.team_id || gm.visitor_team_id === row.team_id)
+              (gm.home_team_id === row.team_id ||
+                gm.visitor_team_id === row.team_id)
           );
           if (!foundGame) continue;
 
@@ -345,7 +363,9 @@ async function pointsHandler(req, res) {
       insights.advanced_metric_2_opponent_pace_rank = { error: err.message };
     }
 
-    // Advanced Metric #3: Points Allowed by Position (Last 5 Games)
+    // -----------------------------
+    // ADVANCED Metric #3: Points Allowed by Position (Last 5)
+    // -----------------------------
     try {
       const { data: activePosRow } = await supabase
         .from("active_players")
@@ -380,10 +400,12 @@ async function pointsHandler(req, res) {
       insights.advanced_metric_3_pts_allowed_last_5 = { error: err.message };
     }
 
-    // Debug Logging
+    // -------------------------------------------------
+    // DEBUG Logs
+    // -------------------------------------------------
     console.log("✅ Insight 1:", insights.insight_1_hit_rate);
     console.log("✅ Insight 2:", insights.insight_2_season_vs_last3);
-    console.log("🔍 Last 3 Game PTS Values:", last3Valid.map((g) => g.pts));
+    console.log("🔍 Last 3 Games (≥10 min) PTS:", last3Valid.map((g) => g.pts));
     console.log("✅ Insight 3:", insights.insight_3_positional_defense);
     console.log("✅ Insight 4:", insights.insight_4_matchup_history);
     console.log("✅ Insight 5:", insights.insight_5_home_vs_away);
@@ -393,7 +415,7 @@ async function pointsHandler(req, res) {
     console.log("✅ Advanced Metric 3:", insights.advanced_metric_3_pts_allowed_last_5);
     console.log("🚀 Final insight payload:", JSON.stringify(insights, null, 2));
 
-    // Final Return
+    // Return final
     return res.status(200).json({ player, line, insights });
   } catch (err) {
     console.error("❌ Unhandled error in /api/points:", err);
