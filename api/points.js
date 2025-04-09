@@ -301,3 +301,38 @@ async function pointsHandler(req, res) {
 }
 
 module.exports = pointsHandler;
+  // ✅ Advanced Metric #3: Points Allowed by Position (Last 5 Games)
+    try {
+      const { data: recentDefense } = await supabase
+        .from("positional_defense_last5")
+        .select("avg_allowed, games_sampled, rank")
+        .eq("defense_team_id", opponentTeamId)
+        .eq("position", playerPosition)
+        .eq("stat_type", "pts")
+        .maybeSingle();
+
+      if (recentDefense) {
+        insights.advanced_metric_3_pts_allowed_last_5 = {
+          position: playerPosition,
+          avg_points: recentDefense.avg_allowed,
+          games_sampled: recentDefense.games_sampled,
+          rank: recentDefense.rank,
+          summary: `Over the last ${recentDefense.games_sampled} games, ${playerPosition}s are averaging ${recentDefense.avg_allowed} PPG vs this team (Rank ${recentDefense.rank} defense vs ${playerPosition}s).`
+        };
+      } else {
+        insights.advanced_metric_3_pts_allowed_last_5 = {
+          error: `No recent ${playerPosition} points allowed data found.`
+        };
+      }
+    } catch (err) {
+      insights.advanced_metric_3_pts_allowed_last_5 = { error: err.message };
+    }
+
+    return res.status(200).json({ player, line, insights });
+  } catch (err) {
+    console.error("❌ Unhandled error in /api/points:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+module.exports = pointsHandler;
