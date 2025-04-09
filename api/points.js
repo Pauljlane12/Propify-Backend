@@ -1,4 +1,3 @@
-// /api/points.js
 const { createClient } = require("@supabase/supabase-js");
 
 const supabase = createClient(
@@ -25,9 +24,9 @@ async function pointsHandler(req, res) {
   const lastName = lastParts.join(" ");
 
   try {
-    // -----------------------------
+    // -------------------------------------------------
     // (1) Identify the Player
-    // -----------------------------
+    // -------------------------------------------------
     const { data: playerRow } = await supabase
       .from("players")
       .select("player_id, team_id, position")
@@ -42,9 +41,9 @@ async function pointsHandler(req, res) {
     const { player_id, team_id, position: fallbackPosition } = playerRow;
     const insights = {};
 
-    // -----------------------------
+    // -------------------------------------------------
     // (2) Next Game for this player's team
-    // -----------------------------
+    // -------------------------------------------------
     const today = new Date().toISOString();
     const { data: upcomingGames } = await supabase
       .from("games")
@@ -130,9 +129,9 @@ async function pointsHandler(req, res) {
       insights.insight_2_season_vs_last3 = { error: err.message };
     }
 
-    // -----------------------------
-    // INSIGHT 3: Positional Defense (Last 5 Games)
-    // -----------------------------
+    // -------------------------------------------------
+    // INSIGHT 3: Full-Season Positional Defense
+    // -------------------------------------------------
     try {
       // 1) Find actual position from active_players if available
       const { data: activeRow } = await supabase
@@ -143,26 +142,28 @@ async function pointsHandler(req, res) {
 
       const playerPosition = activeRow?.true_position || fallbackPosition || "PG";
 
-      // 2) Query your new last-5 table
-      const { data: last5Row, error: last5Error } = await supabase
-        .from("positional_defense_rankings_last5_top_minute")
+      // 2) Query your full-season table
+      // If you're using the wide-column approach, it's likely `positional_defense_rankings_top_minute`.
+      // Or if you have a different name, just replace it here.
+      const { data: seasonRow, error: seasonError } = await supabase
+        .from("positional_defense_rankings_top_minute")
         .select("points_allowed, points_allowed_rank, games_sampled, defense_team_name")
         .eq("position", playerPosition)
         .eq("defense_team_name", opponentTeam?.full_name)
         .maybeSingle();
 
-      if (last5Error) {
-        insights.insight_3_positional_defense = { error: last5Error.message };
-      } else if (!last5Row) {
+      if (seasonError) {
+        insights.insight_3_positional_defense = { error: seasonError.message };
+      } else if (!seasonRow) {
         insights.insight_3_positional_defense = {
-          info: "No last-5 data found for this team/position.",
+          info: "No full-season data found for this team/position.",
         };
       } else {
         insights.insight_3_positional_defense = {
-          points_allowed: last5Row.points_allowed,
-          rank: last5Row.points_allowed_rank,
-          games_sampled: last5Row.games_sampled,
-          summary: `Over their last 5 games, ${playerPosition}s have averaged ${last5Row.points_allowed} PPG vs the ${last5Row.defense_team_name}, which ranks #${last5Row.points_allowed_rank} in the NBA.`,
+          points_allowed: seasonRow.points_allowed,
+          rank: seasonRow.points_allowed_rank,
+          games_sampled: seasonRow.games_sampled,
+          summary: `This season, ${playerPosition}s have averaged ${seasonRow.points_allowed} PPG vs the ${seasonRow.defense_team_name}, ranking #${seasonRow.points_allowed_rank} in the NBA.`,
         };
       }
     } catch (err) {
@@ -243,7 +244,7 @@ async function pointsHandler(req, res) {
       insights.insight_5_home_vs_away = { error: err.message };
     }
 
-    // (No Insight 6 here)
+    // (Skipping an explicit INSIGHT 6 if you wish)
     // -----------------------------
     // INSIGHT 7: Injury Report
     // -----------------------------
@@ -384,42 +385,41 @@ async function pointsHandler(req, res) {
     }
 
     // -----------------------------
-    // ADVANCED Metric #3: Points Allowed by Position (Last 5)
-    // (Optional: using your old or new last-5 table, whichever you prefer)
+    // INSIGHT 8: Last-5 Positional Defense
     // -----------------------------
     try {
-      const { data: activePosRow } = await supabase
+      const { data: activeRow } = await supabase
         .from("active_players")
         .select("true_position")
         .eq("player_id", player_id)
         .maybeSingle();
 
-      const playerPosition = activePosRow?.true_position || fallbackPosition || "PG";
+      const playerPosition = activeRow?.true_position || fallbackPosition || "PG";
 
-      // If you have a different table for advanced "last 5" metrics, adjust here
-      const { data: recentDefense } = await supabase
-        .from("positional_defense_last5")
-        .select("avg_allowed, games_sampled, rank")
-        .eq("defense_team_id", opponentTeamId)
+      // Query your new last-5 table
+      const { data: last5Row, error: last5Error } = await supabase
+        .from("positional_defense_rankings_last5_top_minute")
+        .select("points_allowed, points_allowed_rank, games_sampled, defense_team_name")
         .eq("position", playerPosition)
-        .eq("stat_type", "pts")
+        .eq("defense_team_name", opponentTeam?.full_name)
         .maybeSingle();
 
-      if (recentDefense) {
-        insights.advanced_metric_3_pts_allowed_last_5 = {
-          position: playerPosition,
-          avg_points: recentDefense.avg_allowed,
-          games_sampled: recentDefense.games_sampled,
-          rank: recentDefense.rank,
-          summary: `Over the last ${recentDefense.games_sampled} games, ${playerPosition}s are averaging ${recentDefense.avg_allowed} PPG vs this team (Rank ${recentDefense.rank}).`,
+      if (last5Error) {
+        insights.insight_8_defense_last5 = { error: last5Error.message };
+      } else if (!last5Row) {
+        insights.insight_8_defense_last5 = {
+          info: "No last-5 data found for this team/position.",
         };
       } else {
-        insights.advanced_metric_3_pts_allowed_last_5 = {
-          error: "No recent positional defense data.",
+        insights.insight_8_defense_last5 = {
+          points_allowed: last5Row.points_allowed,
+          rank: last5Row.points_allowed_rank,
+          games_sampled: last5Row.games_sampled,
+          summary: `In their last 5 games, ${playerPosition}s have averaged ${last5Row.points_allowed} PPG vs the ${last5Row.defense_team_name}, ranking #${last5Row.points_allowed_rank} recently.`,
         };
       }
     } catch (err) {
-      insights.advanced_metric_3_pts_allowed_last_5 = { error: err.message };
+      insights.insight_8_defense_last5 = { error: err.message };
     }
 
     // -------------------------------------------------
@@ -428,13 +428,13 @@ async function pointsHandler(req, res) {
     console.log("✅ Insight 1:", insights.insight_1_hit_rate);
     console.log("✅ Insight 2:", insights.insight_2_season_vs_last3);
     console.log("🔍 Last 3 Games (≥10 min) PTS:", last3Valid.map((g) => g.pts));
-    console.log("✅ Insight 3:", insights.insight_3_positional_defense);
+    console.log("✅ Insight 3 (Season):", insights.insight_3_positional_defense);
     console.log("✅ Insight 4:", insights.insight_4_matchup_history);
     console.log("✅ Insight 5:", insights.insight_5_home_vs_away);
     console.log("✅ Insight 7:", insights.insight_7_injury_report);
     console.log("✅ Advanced Metric 1:", insights.advanced_metric_1_projected_game_pace);
     console.log("✅ Advanced Metric 2:", insights.advanced_metric_2_opponent_pace_rank);
-    console.log("✅ Advanced Metric 3:", insights.advanced_metric_3_pts_allowed_last_5);
+    console.log("✅ Insight 8 (Last 5):", insights.insight_8_defense_last5);
     console.log("🚀 Final insight payload:", JSON.stringify(insights, null, 2));
 
     // Return final
