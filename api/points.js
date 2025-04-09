@@ -127,25 +127,32 @@ async function pointsHandler(req, res) {
       insights.insight_3_positional_defense = { error: err.message };
     }
 
-    // Insight 4: Matchup History (Flattened)
+    // Insight 5: Home vs Away
     try {
-      const { data: matchupHistory } = await supabase
-        .from("player_matchup_flat")
-        .select("games_played, avg_value, hit_rate, stat_list")
-        .eq("player_id", player_id)
-        .eq("opponent_team_id", opponentTeamId)
-        .eq("stat_type", "pts")
-        .maybeSingle();
-
-      if (matchupHistory) {
-        insights.insight_4_matchup_history = matchupHistory;
-      } else {
-        insights.insight_4_matchup_history = {
-          error: "No matchup history found for this stat."
-        };
+      const { data: gameStats } = await supabase
+        .from("player_stats")
+        .select("pts, min, game_id")
+        .eq("player_id", player_id);
+      const gameIds =
+        gameStats?.map((g) => g.game_id).filter((id) => typeof id === "number") || [];
+      const { data: games } = await supabase
+        .from("games")
+        .select("id, home_team_id")
+        .in("id", gameIds);
+      const gameMap = Object.fromEntries((games || []).map((g) => [g.id, g.home_team_id]));
+      const home = [],
+        away = [];
+      for (const g of gameStats || []) {
+        if (!g.min || parseInt(g.min) < 10 || g.pts == null) continue;
+        const isHome = gameMap[g.game_id] === team_id;
+        (isHome ? home : away).push(g.pts);
       }
+      insights.insight_5_home_vs_away = {
+        home: +(home.reduce((a, b) => a + b, 0) / home.length || 0).toFixed(2),
+        away: +(away.reduce((a, b) => a + b, 0) / away.length || 0).toFixed(2),
+      };
     } catch (err) {
-      insights.insight_4_matchup_history = { error: err.message };
+      insights.insight_5_home_vs_away = { error: err.message };
     }
 
     // Insight 7: Injury Report (both teams)
