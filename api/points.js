@@ -1,13 +1,63 @@
 // /api/points.js
 const { createClient } = require("@supabase/supabase-js");
+import 'dotenv/config';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Example: Current NBA season is 2025 => 2025-2026
-const CURRENT_SEASON = 2025;
+// 1) Hardcode your current & last season
+const CURRENT_SEASON = 2025; // e.g. for 2025–2026
+const LAST_SEASON = 2024;    // e.g. for 2024–2025
+
+// 2) Define small helper functions for fallback logic
+async function countPlayerSeasonGames(playerId, season) {
+  // Returns how many games the player has in that season
+  const { data, error } = await supabase
+    .from("player_stats")
+    .select("id")  // or game_id
+    .eq("player_id", playerId)
+    .eq("season", season);
+
+  if (error) {
+    console.error("❌ Error in countPlayerSeasonGames:", error.message);
+    return 0;
+  }
+  return data.length;
+}
+
+async function fetchLast10Games(playerId, season) {
+  // Grabs the last 10 games from a specific season
+  const { data, error } = await supabase
+    .from("player_stats")
+    .select("pts, min, game_date")
+    .eq("player_id", playerId)
+    .eq("season", season)
+    .order("game_date", { ascending: false })
+    .limit(10);
+
+  if (error) {
+    console.error("❌ Error in fetchLast10Games:", error.message);
+    return [];
+  }
+  return data;
+}
+
+async function fetchAllSeasonStats(playerId, season) {
+  // Grabs all season stats for a player (≥0 min, let the filter happen after if you want)
+  const { data, error } = await supabase
+    .from("player_stats")
+    .select("pts, min, game_date")
+    .eq("player_id", playerId)
+    .eq("season", season);
+
+  if (error) {
+    console.error("❌ Error in fetchAllSeasonStats:", error.message);
+    return [];
+  }
+  return data;
+}
 
 async function pointsHandler(req, res) {
   console.log("🔥 /api/points was hit:", req.body);
@@ -28,19 +78,17 @@ async function pointsHandler(req, res) {
   const lastName = lastParts.join(" ");
 
   try {
-    // -------------------------------------------------
     // (1) Identify the Player
-    // -------------------------------------------------
-    const { data: playerRow, error: playerError } = await supabase
+    const { data: playerRow, error: playerErr } = await supabase
       .from("players")
       .select("player_id, team_id, position")
       .ilike("first_name", `%${firstName}%`)
       .ilike("last_name", `%${lastName}%`)
       .maybeSingle();
 
-    if (playerError) {
-      console.error("❌ Error finding player:", playerError.message);
-      return res.status(500).json({ error: playerError.message });
+    if (playerErr) {
+      console.error("❌ Error finding player:", playerErr.message);
+      return res.status(500).json({ error: playerErr.message });
     }
     if (!playerRow) {
       return res.status(404).json({ error: "Player not found" });
@@ -49,65 +97,49 @@ async function pointsHandler(req, res) {
     const { player_id, team_id, position: fallbackPosition } = playerRow;
     const insights = {};
 
-    // -------------------------------------------------
-    // (2) Find the Next Upcoming Game for this Team
-    // -------------------------------------------------
-    const nowIso = new Date().toISOString();
-
-    const { data: upcomingGames, error: nextGameError } = await supabase
+    // (2) Next Game for this player's team (unchanged from your script)
+    const today = new Date().toISOString();
+    const { data: upcomingGames } = await supabase
       .from("games")
-      .select("id, date, home_team_id, visitor_team_id, status, season")
-      .eq("season", CURRENT_SEASON)                 // Must be current season
-      .in("status", ["Scheduled", "InProgress"])    // Only future or in-progress
-      .gte("date", nowIso)                          // On or after today's date/time
+      .select("id, date, home_team_id, visitor_team_id")
+      .gt("date", today)
       .or(`home_team_id.eq.${team_id},visitor_team_id.eq.${team_id}`)
       .order("date", { ascending: true })
       .limit(1);
 
-    if (nextGameError) {
-      console.error("❌ Error fetching next game:", nextGameError.message);
-      return res.status(500).json({ error: nextGameError.message });
-    }
-
     const nextGame = upcomingGames?.[0];
-    if (!nextGame) {
-      // No upcoming match found for this team
-      insights.nextGameInfo = {
-        error: "No scheduled or in-progress game found for this team."
-      };
-    } else {
-      // Identify opponent
-      const opponentTeamId =
-        nextGame.home_team_id === team_id
-          ? nextGame.visitor_team_id
-          : nextGame.home_team_id;
+    const opponentTeamId =
+      nextGame?.home_team_id === team_id
+        ? nextGame?.visitor_team_id
+        : nextGame?.home_team_id;
 
-      const { data: opponentTeam } = await supabase
-        .from("teams")
-        .select("full_name, abbreviation")
-        .eq("id", opponentTeamId)
-        .maybeSingle();
+    const { data: opponentTeam } = await supabase
+      .from("teams")
+      .select("full_name, abbreviation")
+      .eq("id", opponentTeamId)
+      .maybeSingle();
 
-      insights.nextGameInfo = {
-        nextGameId: nextGame.id,
-        date: nextGame.date,
-        status: nextGame.status,
-        opponentTeam: opponentTeam?.full_name || "Unknown Opponent"
-      };
-    }
+    // -------------------------------------------------
+    // FALLBACK LOGIC: Count how many current-season games
+    // -------------------------------------------------
+    const currentSeasonCount = await countPlayerSeasonGames(player_id, CURRENT_SEASON);
+    console.log(`Player has ${currentSeasonCount} games in ${CURRENT_SEASON} season`);
 
     // -----------------------------
-    // INSIGHT 1: Last 10 Hit Rate (≥10 min)
+    // INSIGHT 1: Last 10 Hit Rate (≥10 min) w/ Fallback
     // -----------------------------
     try {
-      const { data } = await supabase
-        .from("player_stats")
-        .select("pts, min")
-        .eq("player_id", player_id)
-        .order("game_date", { ascending: false })
-        .limit(10);
+      let last10;
+      if (currentSeasonCount < 10) {
+        // Fallback to last season
+        console.log("Fewer than 10 games in current season => fallback");
+        last10 = await fetchLast10Games(player_id, LAST_SEASON);
+      } else {
+        // Use current season
+        last10 = await fetchLast10Games(player_id, CURRENT_SEASON);
+      }
 
-      const valid = (data || []).filter((g) => g.min && parseInt(g.min, 10) >= 10);
+      const valid = last10.filter((g) => g.min && parseInt(g.min, 10) >= 10);
       const hits = valid.filter((g) => (g.pts || 0) > line).length;
 
       insights.insight_1_hit_rate = {
@@ -116,49 +148,65 @@ async function pointsHandler(req, res) {
         hitRatePercent: valid.length
           ? ((hits / valid.length) * 100).toFixed(1)
           : "0",
+        fallbackUsed: currentSeasonCount < 10
       };
     } catch (err) {
       insights.insight_1_hit_rate = { error: err.message };
     }
 
     // -----------------------------
-    // INSIGHT 2: Season Avg vs Last 3 (≥10 min)
+    // INSIGHT 2: Season Avg vs Last 3 (≥10 min) w/ Fallback
     // -----------------------------
     let last3Valid = [];
     try {
-      // A) fetch all stats
-      const { data: allStats } = await supabase
-        .from("player_stats")
-        .select("pts, min, game_date")
-        .eq("player_id", player_id);
+      // If the player has 0 games in current season => fallback
+      if (currentSeasonCount === 0) {
+        console.log("No current-season games => fallback to last season for average");
+        const allLastSeason = await fetchAllSeasonStats(player_id, LAST_SEASON);
 
-      // B) filter <10 min
-      const seasonValid = (allStats || []).filter((g) => {
-        if (!g.min) return false;
-        return parseInt(g.min, 10) >= 10;
-      });
+        // filter <10 min
+        const valid = allLastSeason.filter(
+          (g) => g.min && parseInt(g.min, 10) >= 10
+        );
+        const sum = valid.reduce((acc, cur) => acc + (cur.pts || 0), 0);
+        const fallbackSeasonAvg = valid.length ? sum / valid.length : 0;
 
-      // C) season average
-      const sumSeason = seasonValid.reduce((acc, cur) => acc + (cur.pts || 0), 0);
-      const seasonAvg = seasonValid.length ? sumSeason / seasonValid.length : 0;
+        // No last-3 logic if there's no current-season data
+        insights.insight_2_season_vs_last3 = {
+          seasonAvg: +fallbackSeasonAvg.toFixed(1),
+          last3Avg: 0,
+          fallbackUsed: true
+        };
+      } else {
+        // Use current season stats
+        const allCurrent = await fetchAllSeasonStats(player_id, CURRENT_SEASON);
+        const validCurrent = allCurrent.filter(
+          (g) => g.min && parseInt(g.min, 10) >= 10
+        );
 
-      // D) sort desc by game_date, slice last 3
-      seasonValid.sort((a, b) => new Date(b.game_date) - new Date(a.game_date));
-      last3Valid = seasonValid.slice(0, 3);
+        // Full-season average
+        const sumSeason = validCurrent.reduce((acc, cur) => acc + (cur.pts || 0), 0);
+        const seasonAvg = validCurrent.length ? sumSeason / validCurrent.length : 0;
 
-      const sumLast3 = last3Valid.reduce((acc, cur) => acc + (cur.pts || 0), 0);
-      const avg3 = last3Valid.length ? sumLast3 / last3Valid.length : 0;
+        // Last 3
+        // Sort desc by game_date
+        validCurrent.sort((a, b) => new Date(b.game_date) - new Date(a.game_date));
+        last3Valid = validCurrent.slice(0, 3);
+        const sumLast3 = last3Valid.reduce((acc, cur) => acc + (cur.pts || 0), 0);
+        const avg3 = last3Valid.length ? sumLast3 / last3Valid.length : 0;
 
-      insights.insight_2_season_vs_last3 = {
-        seasonAvg: +seasonAvg.toFixed(1),
-        last3Avg: +avg3.toFixed(1),
-      };
+        insights.insight_2_season_vs_last3 = {
+          seasonAvg: +seasonAvg.toFixed(1),
+          last3Avg: +avg3.toFixed(1),
+          fallbackUsed: false
+        };
+      }
     } catch (err) {
       insights.insight_2_season_vs_last3 = { error: err.message };
     }
 
     // -------------------------------------------------
-    // INSIGHT 3: Full-Season Positional Defense
+    // INSIGHT 3: Full-Season Positional Defense (no fallback)
     // -------------------------------------------------
     try {
       const { data: activeRow } = await supabase
@@ -173,7 +221,7 @@ async function pointsHandler(req, res) {
         .from("positional_defense_rankings_top_minute")
         .select("points_allowed, points_allowed_rank, games_sampled, defense_team_name")
         .eq("position", playerPosition)
-        .eq("defense_team_name", insights.nextGameInfo?.opponentTeam || "")
+        .eq("defense_team_name", opponentTeam?.full_name)
         .maybeSingle();
 
       if (seasonError) {
@@ -195,48 +243,30 @@ async function pointsHandler(req, res) {
     }
 
     // -----------------------------
-    // INSIGHT 4: Matchup History (Flattened)
+    // INSIGHT 4: Matchup History (Flattened) (no fallback)
     // -----------------------------
     try {
-      if (!nextGame || !insights.nextGameInfo?.opponentTeam) {
-        insights.insight_4_matchup_history = {
-          info: "No upcoming opponent found, so no matchup data to fetch."
-        };
+      const { data: matchupHistory } = await supabase
+        .from("player_matchup_flat")
+        .select("games_played, avg_value, hit_rate, stat_list")
+        .eq("player_id", player_id)
+        .eq("opponent_team_id", opponentTeamId)
+        .eq("stat_type", "pts")
+        .maybeSingle();
+
+      if (matchupHistory) {
+        insights.insight_4_matchup_history = matchupHistory;
       } else {
-        const { data: opponentTeamObj } = await supabase
-          .from("teams")
-          .select("id")
-          .eq("full_name", insights.nextGameInfo.opponentTeam)
-          .maybeSingle();
-
-        if (!opponentTeamObj) {
-          insights.insight_4_matchup_history = {
-            error: "Could not find opponentTeam ID for matchup history."
-          };
-        } else {
-          const { data: matchupHistory } = await supabase
-            .from("player_matchup_flat")
-            .select("games_played, avg_value, hit_rate, stat_list")
-            .eq("player_id", player_id)
-            .eq("opponent_team_id", opponentTeamObj.id)
-            .eq("stat_type", "pts")
-            .maybeSingle();
-
-          if (matchupHistory) {
-            insights.insight_4_matchup_history = matchupHistory;
-          } else {
-            insights.insight_4_matchup_history = {
-              error: "No matchup history found for this stat.",
-            };
-          }
-        }
+        insights.insight_4_matchup_history = {
+          error: "No matchup history found for this stat.",
+        };
       }
     } catch (err) {
       insights.insight_4_matchup_history = { error: err.message };
     }
 
     // -----------------------------
-    // INSIGHT 5: Home vs Away (≥10 min)
+    // INSIGHT 5: Home vs Away (≥10 min) (no fallback)
     // -----------------------------
     try {
       const { data: allStats } = await supabase
@@ -284,36 +314,27 @@ async function pointsHandler(req, res) {
       insights.insight_5_home_vs_away = { error: err.message };
     }
 
+    // (No INSIGHT 6)
     // -----------------------------
-    // INSIGHT 7: Injury Report
+    // INSIGHT 7: Injury Report (no fallback)
     // -----------------------------
     try {
-      if (!nextGame) {
-        insights.insight_7_injury_report = {
-          info: "No next game found, so no context for injuries."
-        };
-      } else {
-        const opponentTeamId =
-          nextGame.home_team_id === team_id
-            ? nextGame.visitor_team_id
-            : nextGame.home_team_id;
+      const teamIds = [team_id, opponentTeamId].filter(Boolean);
+      const { data: injuries } = await supabase
+        .from("player_injuries")
+        .select(
+          "player_id, first_name, last_name, position, status, return_date, description, team_id"
+        )
+        .in("team_id", teamIds);
 
-        const teamIds = [team_id, opponentTeamId].filter(Boolean);
-        const { data: injuries } = await supabase
-          .from("player_injuries")
-          .select(
-            "player_id, first_name, last_name, position, status, return_date, description, team_id"
-          )
-          .in("team_id", teamIds);
-
-        insights.insight_7_injury_report = injuries || [];
-      }
+      insights.insight_7_injury_report = injuries || [];
     } catch (err) {
       insights.insight_7_injury_report = { error: err.message };
     }
 
     // -----------------------------
     // ADVANCED Metric #1: Projected Game Pace
+    // (unchanged from your script)
     // -----------------------------
     let finalGames, finalBox;
     try {
@@ -360,11 +381,7 @@ async function pointsHandler(req, res) {
       });
 
       const t1 = teamPosTotals[team_id];
-      const opponentId =
-        nextGame?.home_team_id === team_id
-          ? nextGame?.visitor_team_id
-          : nextGame?.home_team_id;
-      const t2 = teamPosTotals[opponentId];
+      const t2 = teamPosTotals[opponentTeamId];
 
       const t1Avg = t1 && t1.count > 0 ? t1.sum / t1.count : 0;
       const t2Avg = t2 && t2.count > 0 ? t2.sum / t2.count : 0;
@@ -378,6 +395,7 @@ async function pointsHandler(req, res) {
 
     // -----------------------------
     // ADVANCED Metric #2: Team Pace Rankings
+    // (unchanged from your script)
     // -----------------------------
     try {
       if (!finalGames || !finalBox) {
@@ -390,8 +408,7 @@ async function pointsHandler(req, res) {
           const foundGame = finalGames.find(
             (gm) =>
               gm.date === row.game_date &&
-              (gm.home_team_id === row.team_id ||
-                gm.visitor_team_id === row.team_id)
+              (gm.home_team_id === row.team_id || gm.visitor_team_id === row.team_id)
           );
           if (!foundGame) continue;
 
@@ -420,21 +437,15 @@ async function pointsHandler(req, res) {
           avg_possessions_per_game: count > 0 ? sum / count : 0,
         }));
 
-        // Sort from highest to lowest
         allTeams.sort((a, b) => b.avg_possessions_per_game - a.avg_possessions_per_game);
-
-        const opponentId =
-          nextGame?.home_team_id === team_id
-            ? nextGame?.visitor_team_id
-            : nextGame?.home_team_id;
-        let rankIndex = allTeams.findIndex((x) => x.team_id === opponentId);
+        let rankIndex = allTeams.findIndex((x) => x.team_id === opponentTeamId);
         if (rankIndex === -1) {
           insights.advanced_metric_2_opponent_pace_rank = {
             error: "Opponent pace rank not found",
           };
         } else {
           insights.advanced_metric_2_opponent_pace_rank = {
-            team_id: opponentId,
+            team_id: opponentTeamId,
             pace_rank: rankIndex + 1,
           };
         }
@@ -444,22 +455,9 @@ async function pointsHandler(req, res) {
     }
 
     // -------------------------------------------------
-    // DEBUG Logs
+    // DEBUG
     // -------------------------------------------------
-    console.log("✅ nextGameInfo:", insights.nextGameInfo);
-    console.log("✅ Insight 1:", insights.insight_1_hit_rate);
-    console.log("✅ Insight 2:", insights.insight_2_season_vs_last3);
-    console.log("🔍 Last 3 Games (≥10 min) PTS:", last3Valid.map((g) => g.pts));
-    console.log("✅ Insight 3 (Season):", insights.insight_3_positional_defense);
-    console.log("✅ Insight 4:", insights.insight_4_matchup_history);
-    console.log("✅ Insight 5:", insights.insight_5_home_vs_away);
-    console.log("✅ Insight 7:", insights.insight_7_injury_report);
-    console.log("✅ Adv Metric 1:", insights.advanced_metric_1_projected_game_pace);
-    console.log("✅ Adv Metric 2:", insights.advanced_metric_2_opponent_pace_rank);
-
     console.log("🚀 Final insight payload:", JSON.stringify(insights, null, 2));
-
-    // Return final
     return res.status(200).json({ player, line, insights });
   } catch (err) {
     console.error("❌ Unhandled error in /api/points:", err);
