@@ -1,4 +1,3 @@
-// /api/points.js
 const { createClient } = require("@supabase/supabase-js");
 
 const supabase = createClient(
@@ -43,13 +42,14 @@ async function pointsHandler(req, res) {
     const insights = {};
 
     // -------------------------------------------------
-    // (2) Next Game for this player's team
+    // (2) Next Game for this player's team — REVISED
     // -------------------------------------------------
     const today = new Date().toISOString();
     const { data: upcomingGames } = await supabase
       .from("games")
-      .select("id, date, home_team_id, visitor_team_id")
-      .gt("date", today)
+      .select("id, date, home_team_id, visitor_team_id, status")
+      .gte("date", today)
+      .neq("status", "Final")
       .or(`home_team_id.eq.${team_id},visitor_team_id.eq.${team_id}`)
       .order("date", { ascending: true })
       .limit(1);
@@ -283,7 +283,8 @@ async function pointsHandler(req, res) {
         const foundGame = finalGames.find(
           (gm) =>
             gm.date === row.game_date &&
-            (gm.home_team_id === row.team_id || gm.visitor_team_id === row.team_id)
+            (gm.home_team_id === row.team_id ||
+              gm.visitor_team_id === row.team_id)
         );
         if (!foundGame) continue;
 
@@ -392,6 +393,7 @@ async function pointsHandler(req, res) {
     console.log("✅ Insight 3 (Season):", insights.insight_3_positional_defense);
     console.log("✅ Insight 4:", insights.insight_4_matchup_history);
     console.log("✅ Insight 5:", insights.insight_5_home_vs_away);
+    // (No INSIGHT 6)
     console.log("✅ Insight 7:", insights.insight_7_injury_report);
     console.log("✅ Advanced Metric 1:", insights.advanced_metric_1_projected_game_pace);
     console.log("✅ Advanced Metric 2:", insights.advanced_metric_2_opponent_pace_rank);
