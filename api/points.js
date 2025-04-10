@@ -1,4 +1,3 @@
-// /api/points.js
 const { createClient } = require("@supabase/supabase-js");
 
 const supabase = createClient(
@@ -46,11 +45,13 @@ async function pointsHandler(req, res) {
     // (2) Next Game for this player's team
     // -------------------------------------------------
     const today = new Date().toISOString();
+    // Fix: Use an OR query that includes `date.gt.today` for both home_team_id & visitor_team_id
     const { data: upcomingGames } = await supabase
       .from("games")
       .select("id, date, home_team_id, visitor_team_id")
-      .gt("date", today)
-      .or(`home_team_id.eq.${team_id},visitor_team_id.eq.${team_id}`)
+      .or(
+        `(and(home_team_id.eq.${team_id},date.gt.${today}),and(visitor_team_id.eq.${team_id},date.gt.${today}))`
+      )
       .order("date", { ascending: true })
       .limit(1);
 
