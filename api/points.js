@@ -1,3 +1,4 @@
+// /api/points.js
 const { createClient } = require("@supabase/supabase-js");
 
 const supabase = createClient(
@@ -143,8 +144,6 @@ async function pointsHandler(req, res) {
       const playerPosition = activeRow?.true_position || fallbackPosition || "PG";
 
       // 2) Query your full-season table
-      // If you're using the wide-column approach, it's likely `positional_defense_rankings_top_minute`.
-      // Or if you have a different name, just replace it here.
       const { data: seasonRow, error: seasonError } = await supabase
         .from("positional_defense_rankings_top_minute")
         .select("points_allowed, points_allowed_rank, games_sampled, defense_team_name")
@@ -244,7 +243,7 @@ async function pointsHandler(req, res) {
       insights.insight_5_home_vs_away = { error: err.message };
     }
 
-    // (Skipping an explicit INSIGHT 6 if you wish)
+    // (No INSIGHT 6)
     // -----------------------------
     // INSIGHT 7: Injury Report
     // -----------------------------
@@ -384,44 +383,6 @@ async function pointsHandler(req, res) {
       insights.advanced_metric_2_opponent_pace_rank = { error: err.message };
     }
 
-    // -----------------------------
-    // INSIGHT 8: Last-5 Positional Defense
-    // -----------------------------
-    try {
-      const { data: activeRow } = await supabase
-        .from("active_players")
-        .select("true_position")
-        .eq("player_id", player_id)
-        .maybeSingle();
-
-      const playerPosition = activeRow?.true_position || fallbackPosition || "PG";
-
-      // Query your new last-5 table
-      const { data: last5Row, error: last5Error } = await supabase
-        .from("positional_defense_rankings_last5_top_minute")
-        .select("points_allowed, points_allowed_rank, games_sampled, defense_team_name")
-        .eq("position", playerPosition)
-        .eq("defense_team_name", opponentTeam?.full_name)
-        .maybeSingle();
-
-      if (last5Error) {
-        insights.insight_8_defense_last5 = { error: last5Error.message };
-      } else if (!last5Row) {
-        insights.insight_8_defense_last5 = {
-          info: "No last-5 data found for this team/position.",
-        };
-      } else {
-        insights.insight_8_defense_last5 = {
-          points_allowed: last5Row.points_allowed,
-          rank: last5Row.points_allowed_rank,
-          games_sampled: last5Row.games_sampled,
-          summary: `In their last 5 games, ${playerPosition}s have averaged ${last5Row.points_allowed} PPG vs the ${last5Row.defense_team_name}, ranking #${last5Row.points_allowed_rank} recently.`,
-        };
-      }
-    } catch (err) {
-      insights.insight_8_defense_last5 = { error: err.message };
-    }
-
     // -------------------------------------------------
     // DEBUG Logs
     // -------------------------------------------------
@@ -434,7 +395,6 @@ async function pointsHandler(req, res) {
     console.log("✅ Insight 7:", insights.insight_7_injury_report);
     console.log("✅ Advanced Metric 1:", insights.advanced_metric_1_projected_game_pace);
     console.log("✅ Advanced Metric 2:", insights.advanced_metric_2_opponent_pace_rank);
-    console.log("✅ Insight 8 (Last 5):", insights.insight_8_defense_last5);
     console.log("🚀 Final insight payload:", JSON.stringify(insights, null, 2));
 
     // Return final
