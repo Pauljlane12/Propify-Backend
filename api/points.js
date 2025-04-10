@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { getInsightsForStat } from "@/insights/index.js";
+import { getInsightsForStat } from "../insights/index.js"; // 🔧 Fixed path
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
