@@ -42,13 +42,11 @@ async function pointsHandler(req, res) {
     const insights = {};
 
     // -------------------------------------------------
-    // (2) Next Game for this player's team — REVISED
+    // (2) Next Game for this player's team — No time check
     // -------------------------------------------------
-    const today = new Date().toISOString();
     const { data: upcomingGames } = await supabase
       .from("games")
       .select("id, date, home_team_id, visitor_team_id, status")
-      .gte("date", today)
       .neq("status", "Final")
       .or(`home_team_id.eq.${team_id},visitor_team_id.eq.${team_id}`)
       .order("date", { ascending: true })
