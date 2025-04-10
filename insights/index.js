@@ -6,6 +6,7 @@ import { getHomeAwaySplit } from "./homeAwaySplit.js";
 import { getInjuryReport } from "./injuryReport.js";
 import { getProjectedGamePace } from "./gamePace.js";
 import { getTeamPaceRank } from "./teamPaceRank.js";
+import { getOpponentFgPercentLast3 } from "./opponentFgPercentLast3.js"; // 🆕 NEW
 
 export async function getInsightsForStat({
   playerId,
@@ -59,7 +60,7 @@ export async function getInsightsForStat({
     supabase,
   });
 
-  // 🔍 Advanced Metrics (optional but powerful)
+  // 🔍 Advanced Metrics (all props)
   insights.advanced_metric_1_projected_game_pace = await getProjectedGamePace({
     teamId,
     opponentTeamId,
@@ -70,6 +71,14 @@ export async function getInsightsForStat({
     opponentTeamId,
     supabase,
   });
+
+  // 🧠 Rebound-specific insight
+  if (statType === "reb") {
+    insights.advanced_metric_4_opponent_fg_last3 = await getOpponentFgPercentLast3({
+      opponentTeamId,
+      supabase,
+    });
+  }
 
   return insights;
 }
