@@ -6,7 +6,8 @@ import { getHomeAwaySplit } from "./homeAwaySplit.js";
 import { getInjuryReport } from "./injuryReport.js";
 import { getProjectedGamePace } from "./gamePace.js";
 import { getTeamPaceRank } from "./teamPaceRank.js";
-import { getOpponentFgPercentLast3 } from "./opponentFgPercentLast3.js"; // 🆕 NEW
+import { getOpponentFgPercentLast3 } from "./opponentFgPercentLast3.js";
+import { getRestDayPerformance } from "./restDayPerformance.js"; // 🧠 NEW
 
 export async function getInsightsForStat({
   playerId,
@@ -72,7 +73,15 @@ export async function getInsightsForStat({
     supabase,
   });
 
-  // 🧠 Rebound-specific insight
+  // 🧠 Rest Day Insight (applies to ALL stat types)
+  insights.rest_day_performance = await getRestDayPerformance({
+    playerId,
+    teamId,
+    statType,
+    supabase,
+  });
+
+  // 🧠 Rebound-specific advanced insight
   if (statType === "reb") {
     insights.advanced_metric_4_opponent_fg_last3 = await getOpponentFgPercentLast3({
       opponentTeamId,
