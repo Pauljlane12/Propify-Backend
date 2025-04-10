@@ -63,6 +63,9 @@ export default async function pointsHandler(req, res) {
       supabase,
     });
 
+    // 📦 Log full payload
+    console.log("🚀 Final insights payload:", JSON.stringify(insights, null, 2));
+
     return res.status(200).json({ player, line, insights });
   } catch (err) {
     console.error("❌ Unhandled error in /api/points:", err);
