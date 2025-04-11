@@ -39,11 +39,11 @@ export async function getRestDayPerformance({
     const diffInDays = Math.floor(
       (new Date(nextGameDate) - new Date(lastGameDate)) / (1000 * 60 * 60 * 24)
     );
-    const restDays = Math.max(0, diffInDays - 1); // ✅ Use GREATEST(diff - 1, 0)
+    const restDays = Math.max(0, diffInDays - 1);
 
     const statColumn = `avg_${statType}`;
 
-    // 4. Lookup player's performance for this rest_days value
+    // 4. Get the player's performance for this rest_days from the table
     const { data: rows, error: restError } = await supabase
       .from("player_rest_day_averages")
       .select(`${statColumn}, rest_days, games_played`)
