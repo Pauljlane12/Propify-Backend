@@ -35,15 +35,15 @@ export async function getRestDayPerformance({
       return { info: "No last completed game found for this team." };
     }
 
-    // 3. Calculate rest days (NBA logic: subtract 1 day)
+    // 3. Calculate rest days (NBA logic: subtract 1 day between games)
     const diffInDays = Math.floor(
       (new Date(nextGameDate) - new Date(lastGameDate)) / (1000 * 60 * 60 * 24)
     );
-    const restDays = Math.max(0, diffInDays - 1);
+    const restDays = Math.max(0, diffInDays - 1); // ✅ Use GREATEST(diff - 1, 0)
 
     const statColumn = `avg_${statType}`;
 
-    // 4. Pull performance data from rest_day_averages table
+    // 4. Lookup player's performance for this rest_days value
     const { data: rows, error: restError } = await supabase
       .from("player_rest_day_averages")
       .select(`${statColumn}, rest_days, games_played`)
