@@ -18,13 +18,11 @@ export default async function assistsHandler(req, res) {
     return res.status(400).json({ error: "Missing or invalid player or line" });
   }
 
-  // Split first & last name
   const [firstName, ...lastParts] = player.trim().split(" ");
   const lastName = lastParts.join(" ");
-  const statType = "ast"; // ✅ Set stat type to assists
+  const statType = "ast"; // ✅ Set to assists
 
   try {
-    // 🔍 Identify Player
     const { data: playerRow } = await supabase
       .from("players")
       .select("player_id, team_id")
@@ -38,7 +36,6 @@ export default async function assistsHandler(req, res) {
 
     const { player_id, team_id } = playerRow;
 
-    // 🏀 Get Opponent Team (Next Game)
     const { data: upcomingGames } = await supabase
       .from("games")
       .select("id, date, home_team_id, visitor_team_id, status")
@@ -53,7 +50,6 @@ export default async function assistsHandler(req, res) {
         ? nextGame?.visitor_team_id
         : nextGame?.home_team_id;
 
-    // 🚀 Get All Insights
     const insights = await getInsightsForStat({
       playerId: player_id,
       statType,
