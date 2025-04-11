@@ -35,26 +35,28 @@ export async function getRestDayPerformance({
       return { info: "No last completed game found for this team." };
     }
 
-    // 3. Calculate rest days (subtract 1 to count full days off)
+    // 3. Calculate rest days (NBA logic: subtract 1 day)
     const diffInDays = Math.floor(
       (new Date(nextGameDate) - new Date(lastGameDate)) / (1000 * 60 * 60 * 24)
     );
     const restDays = Math.max(0, diffInDays - 1);
 
-    const statColumn = `avg_${statType}`; // e.g. avg_pts, avg_reb
+    const statColumn = `avg_${statType}`;
 
-    // 4. Pull rest day averages from table
-    const { data: restRow, error: restError } = await supabase
+    // 4. Pull performance data from rest_day_averages table
+    const { data: rows, error: restError } = await supabase
       .from("player_rest_day_averages")
       .select(`${statColumn}, rest_days, games_played`)
       .eq("player_id", playerId)
       .eq("rest_days", restDays)
       .eq("game_season", CURRENT_SEASON)
-      .maybeSingle();
+      .limit(1);
 
     if (restError) {
       return { error: restError.message };
     }
+
+    const restRow = rows?.[0];
 
     if (!restRow || restRow[statColumn] == null) {
       return {
