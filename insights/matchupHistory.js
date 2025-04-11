@@ -1,4 +1,9 @@
-export async function getMatchupHistory({ playerId, opponentTeamId, statType, supabase }) {
+export async function getMatchupHistory({
+  playerId,
+  opponentTeamId,
+  statType,
+  supabase,
+}) {
   try {
     const { data, error } = await supabase
       .from("player_matchup_flat")
@@ -6,13 +11,14 @@ export async function getMatchupHistory({ playerId, opponentTeamId, statType, su
       .eq("player_id", playerId)
       .eq("opponent_team_id", opponentTeamId)
       .eq("stat_type", statType)
+      .eq("season", 2024) // ✅ Add season constraint
       .maybeSingle();
 
     if (error) {
       return { error: error.message };
     }
 
-    if (!data) {
+    if (!data || !data.games_played) {
       return {
         info: "No matchup history found for this stat vs this team.",
       };
