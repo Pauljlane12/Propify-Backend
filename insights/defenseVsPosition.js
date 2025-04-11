@@ -22,7 +22,31 @@ export async function getDefenseVsPosition({
     const playerPosition =
       activeRow?.true_position || fallbackRow?.position || "PG";
 
-    // Step 2: Pick correct column and rank key
+    // Step 2: Normalize statType
+    const statTypeAliasMap = {
+      points: "pts",
+      rebounds: "reb",
+      assists: "ast",
+      "3pt made": "fg3m",
+      "pts+assists": "pts_ast",
+      pras: "pra",
+      "pts+rebounds": "pts_reb",
+      "blocks+steals": "blk_stl",
+      "rebs+assists": "reb_ast",
+      "defensive rebounds": "dreb",
+      "offensive rebounds": "oreb",
+      "3pt attempts": "fg3a",
+      "fg made": "fg_made",
+      "ft made": "ftm",
+      "fg attempts": "fga",
+      steals: "stl",
+      blocks: "blk",
+      turnovers: "turnover",
+    };
+
+    const normalizedStatType = statTypeAliasMap[statType] || statType;
+
+    // Step 3: Column and rank mapping
     const columnMap = {
       pts: ["points_allowed", "points_allowed_rank"],
       reb: ["rebounds_allowed", "rebounds_allowed_rank"],
@@ -44,13 +68,15 @@ export async function getDefenseVsPosition({
       turnover: ["turnovers_allowed", "turnovers_allowed_rank"],
     };
 
-    const [valueCol, rankCol] = columnMap[statType] || [];
+    const [valueCol, rankCol] = columnMap[normalizedStatType] || [];
 
     if (!valueCol || !rankCol) {
-      return { error: `Unsupported statType "${statType}"` };
+      return {
+        error: `Unsupported statType "${statType}" (normalized: "${normalizedStatType}")`,
+      };
     }
 
-    // Step 3: Query the table
+    // Step 4: Query the positional defense table
     const { data: result, error } = await supabase
       .from("positional_defense_rankings_top_minute")
       .select(
@@ -71,12 +97,12 @@ export async function getDefenseVsPosition({
     }
 
     return {
-      statType,
+      statType: normalizedStatType,
       position: playerPosition,
       value: result[valueCol],
       rank: result[rankCol],
       games_sampled: result.games_sampled,
-      summary: `This season, ${playerPosition}s have averaged ${result[valueCol]} ${statType.toUpperCase()} vs the ${result.defense_team_name}, ranking #${result[rankCol]} in the NBA.`,
+      summary: `This season, ${playerPosition}s have averaged ${result[valueCol]} ${normalizedStatType.toUpperCase()} vs the ${result.defense_team_name}, ranking #${result[rankCol]} in the NBA.`,
     };
   } catch (err) {
     return { error: err.message };
