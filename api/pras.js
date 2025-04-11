@@ -20,7 +20,8 @@ export default async function prasHandler(req, res) {
 
   const [firstName, ...lastParts] = player.trim().split(" ");
   const lastName = lastParts.join(" ");
-  const statType = "pra"; // ✅ Points + Rebounds + Assists
+  const statType = "pras"; // ✅ Points + Rebounds + Assists
+  const statColumns = ["pts", "reb", "ast"]; // ✅ Actual stat fields used
 
   try {
     const { data: playerRow } = await supabase
@@ -53,6 +54,7 @@ export default async function prasHandler(req, res) {
     const insights = await getInsightsForStat({
       playerId: player_id,
       statType,
+      statColumns, // ✅ This enables combo stat logic
       line,
       teamId: team_id,
       opponentTeamId,
