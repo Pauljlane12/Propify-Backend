@@ -1,6 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
 import { statTypeMap } from "../utils/statTypeMap.js";
-import { computeStatValue } from "../utils/computeStatValue.js";
 import { getInsightsForStat } from "../insights/index.js";
 
 const supabase = createClient(
@@ -17,7 +16,6 @@ export default async function statHandler(req, res) {
 
   const { player, line, statType } = req.body;
 
-  // Validate request
   if (!player || typeof line !== "number" || !statType) {
     return res.status(400).json({
       error: "Missing or invalid player, line, or statType",
@@ -26,15 +24,21 @@ export default async function statHandler(req, res) {
 
   const statColumns = statTypeMap[statType.toLowerCase()];
   if (!statColumns) {
-    return res.status(400).json({ error: `Unsupported statType: ${statType}` });
+    return res
+      .status(400)
+      .json({ error: `Unsupported statType: ${statType}` });
   }
 
-  // Split name
+  // If it's a single stat, e.g. ["pts"], pass "pts"
+  // If it's a combo, e.g. ["pts", "reb", "ast"], keep as "pras" or original statType
+  const trueStatType =
+    statColumns.length === 1 ? statColumns[0] : statType.toLowerCase();
+
   const [firstName, ...lastParts] = player.trim().split(" ");
   const lastName = lastParts.join(" ");
 
   try {
-    // 🎯 Find player
+    // 🎯 Get Player
     const { data: playerRow, error: playerError } = await supabase
       .from("players")
       .select("player_id, team_id")
@@ -48,7 +52,7 @@ export default async function statHandler(req, res) {
 
     const { player_id, team_id } = playerRow;
 
-    // 🏀 Find next game for team
+    // 🏀 Get Next Opponent
     const { data: upcomingGames, error: gameError } = await supabase
       .from("games")
       .select("id, date, home_team_id, visitor_team_id, status")
@@ -67,11 +71,11 @@ export default async function statHandler(req, res) {
         ? nextGame?.visitor_team_id
         : nextGame?.home_team_id;
 
-    // 📊 Run insights
+    // 📊 Get Insights
     const insights = await getInsightsForStat({
       playerId: player_id,
-      statType: statType.toLowerCase(),
-      statColumns,
+      statType: trueStatType, // ✅ mapped to "pts", "reb", etc.
+      statColumns, // ✅ ["pts"], or ["pts", "reb", "ast"] for combos
       line,
       teamId: team_id,
       opponentTeamId,
@@ -80,12 +84,15 @@ export default async function statHandler(req, res) {
 
     return res.status(200).json({
       player,
-      statType,
+      statType: trueStatType,
       line,
       insights,
     });
   } catch (err) {
-    console.error("❌ Error in /api/stat.js:", err);
-    return res.status(500).json({ error: "Internal server error" });
+    console.error("❌ Error in /api/stat:", err);
+    return res.status(500).json({
+      error: "Internal server error",
+      debug: { message: err.message, stack: err.stack },
+    });
   }
 }
