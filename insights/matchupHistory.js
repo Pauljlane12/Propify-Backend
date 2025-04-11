@@ -5,6 +5,7 @@ export async function getMatchupHistory({
   supabase,
 }) {
   try {
+    // 🔁 Normalize the statType
     const statTypeAliasMap = {
       pts: "points",
       reb: "rebounds",
@@ -28,7 +29,7 @@ export async function getMatchupHistory({
 
     const normalizedStatType = statTypeAliasMap[statType] || statType;
 
-    console.log("📊 Matchup lookup:", {
+    console.log("📊 [getMatchupHistory] Query Inputs:", {
       playerId,
       opponentTeamId,
       inputStatType: statType,
@@ -45,14 +46,18 @@ export async function getMatchupHistory({
       .maybeSingle();
 
     if (error) {
+      console.error("❌ Supabase error:", error.message);
       return { error: error.message };
     }
 
-    if (!data || !data.games_played) {
+    if (!data) {
+      console.warn("⚠️ No data returned from Supabase.");
       return {
         info: "No matchup history found for this stat vs this team.",
       };
     }
+
+    console.log("✅ Matchup data found:", data);
 
     return {
       gamesPlayed: data.games_played,
@@ -61,6 +66,7 @@ export async function getMatchupHistory({
       statList: data.stat_list,
     };
   } catch (err) {
+    console.error("🔥 Unexpected error in getMatchupHistory:", err);
     return { error: err.message };
   }
 }
