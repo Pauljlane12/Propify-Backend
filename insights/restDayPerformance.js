@@ -7,7 +7,7 @@ export async function getRestDayPerformance({
   supabase,
 }) {
   try {
-    // 1. Get next game for this team
+    // 1. Get the next scheduled game for this team
     const { data: upcomingGames, error: upcomingError } = await supabase
       .from("games")
       .select("date")
@@ -16,13 +16,12 @@ export async function getRestDayPerformance({
       .order("date", { ascending: true })
       .limit(1);
 
-    if (upcomingError || !upcomingGames?.length) {
-      return { error: "No upcoming game found for team." };
+    const nextGameDate = upcomingGames?.[0]?.date;
+    if (upcomingError || !nextGameDate) {
+      return { info: "No upcoming game found for this team." };
     }
 
-    const nextGameDate = upcomingGames[0].date;
-
-    // 2. Get last final game for the team
+    // 2. Get the most recent completed game for this team
     const { data: lastGames, error: lastError } = await supabase
       .from("games")
       .select("date")
@@ -31,20 +30,22 @@ export async function getRestDayPerformance({
       .order("date", { ascending: false })
       .limit(1);
 
-    if (lastError || !lastGames?.length) {
-      return { error: "No previous game found for team." };
+    const lastGameDate = lastGames?.[0]?.date;
+    if (lastError || !lastGameDate) {
+      return { info: "No last completed game found for this team." };
     }
 
-    const lastGameDate = lastGames[0].date;
-
-    // 3. Calculate rest days
-    const restDays = Math.floor(
-      (new Date(nextGameDate) - new Date(lastGameDate)) / (1000 * 60 * 60 * 24)
+    // 3. Calculate rest days (rounded down to whole days)
+    const restDays = Math.max(
+      0,
+      Math.floor(
+        (new Date(nextGameDate) - new Date(lastGameDate)) / (1000 * 60 * 60 * 24)
+      )
     );
 
-    const statColumn = `avg_${statType}`;
+    const statColumn = `avg_${statType}`; // e.g. avg_pts, avg_reb
 
-    // 4. Lookup from player_rest_day_averages table
+    // 4. Pull performance data from rest_day_averages table
     const { data: restRow, error: restError } = await supabase
       .from("player_rest_day_averages")
       .select(`${statColumn}, rest_days, games_played`)
@@ -71,6 +72,6 @@ export async function getRestDayPerformance({
       context: `On ${restRow.rest_days} days rest this season, this player is averaging ${restRow[statColumn]} ${statType.toUpperCase()} (${restRow.games_played} games).`,
     };
   } catch (err) {
-    return { error: err.message };
+    return { error: err.message || "Unhandled error in restDayPerformance.js" };
   }
 }
