@@ -1,14 +1,10 @@
-// /pages/api/upload-bet.js
-
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
 import { ImageAnnotatorClient } from '@google-cloud/vision';
 import OpenAI from 'openai';
 
-// If you stored your entire JSON in one environment variable (GOOGLE_CLOUD_VISION_KEY):
 const googleCredentials = JSON.parse(process.env.GOOGLE_CLOUD_VISION_KEY);
 
-// Create the Vision client
 const visionClient = new ImageAnnotatorClient({
   credentials: {
     client_email: googleCredentials.client_email,
@@ -16,7 +12,6 @@ const visionClient = new ImageAnnotatorClient({
   },
 });
 
-// Initialize GPT
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -62,30 +57,44 @@ export default async function handler(req, res) {
       const lines = fullText.split('\n');
       const topHalf = lines.slice(0, Math.floor(lines.length / 2)).join('\n');
 
+      // Optional OCR cleanup (can adjust/expand this)
+      const cleanedTopHalf = topHalf
+        .replace(/3PTS/gi, '3PT made')
+        .replace(/PTS/gi, 'points')
+        .replace(/REB/gi, 'rebounds')
+        .replace(/AST/gi, 'assists')
+        .replace(/PRA/gi, 'points + rebounds + assists');
+
       const userPrompt = `
-Here is text from a sports betting slip:
+You are extracting player prop bets from a sports betting screenshot.
+
+Only focus on the top half of the betting slip:
 ---
-${topHalf}
+${cleanedTopHalf}
 ---
-Your job:
-Extract only the player prop bets and return them in this format:
+
+Return all found player prop bets in **this exact JSON format**:
 [
   { "player": "LeBron James", "prop": "points", "line": 26.5, "type": "over" }
 ]
+
 Rules:
-- ONLY use the top section of the text — ignore anything about Power Play, Entry Fee, payout, balances, etc.
-- If the word "More" is near a player's stat, that means "over".
-- If the word "Less" is near a player's stat, that means "under".
-- Do NOT guess or invent anything.
-- If no bets are found, return an empty array: []
+- DO NOT include anything about payout, entry, Power Plays, or balances.
+- If the word "More" appears near a player's stat, set "type": "over".
+- If the word "Less" appears near a player's stat, set "type": "under".
+- Only include props with a valid number line (e.g., 23.5, not “N/A”).
+- Common props include: points, rebounds, assists, 3PT made, PRA.
+- NEVER guess — only include bets where player, prop, line, and type are all clearly present.
+- If no props are found, return: []
+- Always return pure JSON, nothing else.
       `;
 
       const gptResponse = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+        model: 'gpt-4o', // optional: fallback to 'gpt-3.5-turbo' if needed
         messages: [
           {
             role: 'system',
-            content: 'You are an assistant that extracts bet details from text and returns JSON only.',
+            content: 'You extract player prop bets from OCR text. Return clean JSON only.',
           },
           {
             role: 'user',
@@ -93,7 +102,7 @@ Rules:
           },
         ],
         temperature: 0,
-        max_tokens: 300,
+        max_tokens: 400,
       });
 
       let rawGpt = gptResponse.choices?.[0]?.message?.content?.trim() || '';
@@ -108,16 +117,30 @@ Rules:
         structuredBets = [];
       }
 
-      const cleanedParsed = structuredBets.map(leg => {
-        const lower = leg.type?.toLowerCase();
-        return {
-          ...leg,
-          type:
-            lower === 'more' ? 'over' :
-            lower === 'less' ? 'under' :
-            leg.type,
-        };
-      });
+      const cleanedParsed = structuredBets
+        .filter(leg =>
+          leg.player &&
+          leg.prop &&
+          leg.line !== undefined &&
+          (leg.type === 'over' || leg.type === 'under' || leg.type === 'more' || leg.type === 'less')
+        )
+        .map(leg => {
+          const lowerType = leg.type?.toLowerCase();
+          return {
+            ...leg,
+            player: leg.player.trim(),
+            prop: leg.prop.toLowerCase().trim(),
+            line: parseFloat(leg.line),
+            type:
+              lowerType === 'more' ? 'over' :
+              lowerType === 'less' ? 'under' :
+              lowerType,
+          };
+        });
+
+      if (cleanedParsed.length === 0) {
+        console.warn('⚠️ GPT returned no valid props. OCR may be poor or screenshot unclear.');
+      }
 
       console.log('📦 Final structured bets:', cleanedParsed);
 
