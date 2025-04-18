@@ -7,7 +7,7 @@ import { getInjuryReport } from "./injuryReport.js";
 import { getProjectedGamePace } from "./gamePace.js";
 import { getTeamPaceRank } from "./teamPaceRank.js";
 import { getOpponentFgPercentLast3 } from "./opponentFgPercentLast3.js";
-import { getRestDayPerformance } from "./restDayPerformance.js"; // 🧠 NEW
+import { getRestDayPerformance } from "./restDayPerformance.js";
 
 export async function getInsightsForStat({
   playerId,
@@ -19,10 +19,13 @@ export async function getInsightsForStat({
 }) {
   const insights = {};
 
+  const statColumns = [statType]; // ✅ fix: define statColumns for insight_1
+
   // ✅ Shared across all props
   insights.insight_1_hit_rate = await getLast10GameHitRate({
     playerId,
     statType,
+    statColumns, // ✅ now correctly defined
     line,
     supabase,
   });
