@@ -3,11 +3,11 @@ import { getSeasonVsLast3 } from "./seasonVsLast3.js";
 import { getDefenseVsPosition } from "./defenseVsPosition.js";
 import { getMatchupHistory } from "./matchupHistory.js";
 import { getHomeAwaySplit } from "./homeAwaySplit.js";
-import { getInjuryReport } from "./injuryReport.js";
 import { getProjectedGamePace } from "./gamePace.js";
 import { getTeamPaceRank } from "./teamPaceRank.js";
 import { getOpponentFgPercentLast3 } from "./opponentFgPercentLast3.js";
 import { getRestDayPerformance } from "./restDayPerformance.js";
+import { getFgaTrendLast3 } from "./fgaTrendLast3.js"; // ✅ New import
 
 export async function getInsightsForStat({
   playerId,
@@ -19,13 +19,13 @@ export async function getInsightsForStat({
 }) {
   const insights = {};
 
-  const statColumns = [statType]; // ✅ fix: define statColumns for insight_1
+  const statColumns = [statType];
 
   // ✅ Shared across all props
   insights.insight_1_hit_rate = await getLast10GameHitRate({
     playerId,
     statType,
-    statColumns, // ✅ now correctly defined
+    statColumns,
     line,
     supabase,
   });
@@ -58,12 +58,6 @@ export async function getInsightsForStat({
     supabase,
   });
 
-  insights.insight_7_injury_report = await getInjuryReport({
-    teamId,
-    opponentTeamId,
-    supabase,
-  });
-
   // 🔍 Advanced Metrics (all props)
   insights.advanced_metric_1_projected_game_pace = await getProjectedGamePace({
     teamId,
@@ -88,6 +82,14 @@ export async function getInsightsForStat({
   if (statType === "reb") {
     insights.advanced_metric_4_opponent_fg_last3 = await getOpponentFgPercentLast3({
       opponentTeamId,
+      supabase,
+    });
+  }
+
+  // 🧠 Points-specific advanced insight
+  if (statType === "pts") {
+    insights.advanced_metric_4_fga_trend_last3 = await getFgaTrendLast3({
+      playerId,
       supabase,
     });
   }
