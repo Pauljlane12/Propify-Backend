@@ -10,19 +10,36 @@ export async function getLast10GameHitRate({ playerId, statType, line, supabase 
     .eq("player_id", playerId)
     .eq("game_season", currentSeason)
     .order("game_date", { ascending: false })
-    .limit(20); // grab extra in case some are under 10 mins
+    .limit(20); // fetch extra in case some are invalid
 
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("❌ Supabase error fetching player stats:", error.message);
+    return { error: error.message };
+  }
 
-  // ✅ Only include games with ≥ 10 minutes and stat is not null
   const valid = (data || []).filter((g) => {
     const minutes = parseInt(g.min, 10);
-    return !isNaN(minutes) && minutes >= 10 && g[statType] != null;
+    const statValue = g[statType];
+    return !isNaN(minutes) && minutes >= 10 && statValue !== null && statValue !== undefined;
   });
 
-  // ✅ Grab the last 10 valid games
   const last10 = valid.slice(0, 10);
-  const hitCount = last10.filter((g) => g[statType] >= line).length;
+  const lineValue = parseFloat(line); // ensure it's a number
+  const hitCount = last10.filter((g) => g[statType] >= lineValue).length;
+
+  // ✅ Debug output
+  console.log("📊 getLast10GameHitRate");
+  console.log("▶ statType:", statType);
+  console.log("▶ line:", lineValue);
+  console.log("▶ playerId:", playerId);
+  console.table(
+    last10.map((g) => ({
+      game_date: g.game_date,
+      stat: g[statType],
+      min: g.min,
+      hit: g[statType] >= lineValue,
+    }))
+  );
 
   return {
     hitRate: last10.length ? +(hitCount / last10.length).toFixed(2) : null,
