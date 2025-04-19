@@ -25,12 +25,13 @@ export default async function paHandler(req, res) {
   const normalize = (str) =>
     str
       .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "") // remove accents
-      .replace(/[^\w\s]/gi, "")        // remove punctuation
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\w\s]/gi, "")
       .toLowerCase()
       .trim();
 
-  const normalizedTarget = normalize(player);
+  const normalizedTarget = normalize(player); // e.g., "jaden mcdaniels"
+
   const statType = "pa";
   const statColumns = ["pts", "ast"];
 
@@ -49,9 +50,10 @@ export default async function paHandler(req, res) {
       return normalize(fullName) === normalizedTarget;
     });
 
+    // Debug log in case of failure
     if (!playerRow) {
       console.error("❌ Player not found:", normalizedTarget);
-      return res.status(404).json({ error: "Player not found" });
+      return res.status(404).json({ error: `Player not found: ${normalizedTarget}` });
     }
 
     const { player_id, team_id } = playerRow;
@@ -70,7 +72,6 @@ export default async function paHandler(req, res) {
     }
 
     const nextGame = upcomingGames?.[0];
-
     const opponentTeamId =
       nextGame?.home_team_id === team_id
         ? nextGame?.visitor_team_id
