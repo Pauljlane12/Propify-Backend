@@ -22,6 +22,15 @@ export const config = {
   },
 };
 
+// 🧠 Unicode name normalizer
+const normalizeName = (name) =>
+  name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // strip accents
+    .replace(/[^\w\s]/gi, "")        // remove weird punctuation
+    .toLowerCase()
+    .trim();
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Only POST requests allowed' });
@@ -57,7 +66,6 @@ export default async function handler(req, res) {
       const lines = fullText.split('\n');
       const topHalf = lines.slice(0, Math.floor(lines.length / 2)).join('\n');
 
-      // Optional OCR cleanup (can adjust/expand this)
       const cleanedTopHalf = topHalf
         .replace(/3PTS/gi, '3PT made')
         .replace(/PTS/gi, 'points')
@@ -90,7 +98,7 @@ Rules:
       `;
 
       const gptResponse = await openai.chat.completions.create({
-        model: 'gpt-4o', // optional: fallback to 'gpt-3.5-turbo' if needed
+        model: 'gpt-4o',
         messages: [
           {
             role: 'system',
@@ -128,7 +136,7 @@ Rules:
           const lowerType = leg.type?.toLowerCase();
           return {
             ...leg,
-            player: leg.player.trim(),
+            player: normalizeName(leg.player), // ✅ Normalize name here
             prop: leg.prop.toLowerCase().trim(),
             line: parseFloat(leg.line),
             type:
