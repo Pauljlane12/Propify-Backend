@@ -12,11 +12,11 @@ export async function getMatchupHistoryCombo({
   const fetchGames = async (season) => {
     const { data: stats, error } = await supabase
       .from("player_stats")
-      .select([...statColumns, "min", "game_id", "team_id"].join(", "))
+      .select([...statColumns, "min", "game_id", "game_season", "team_id", "game_date"].join(", "))
       .eq("player_id", playerId)
       .eq("game_season", season);
 
-    if (error) return [];
+    if (error || !stats?.length) return [];
 
     const gameIds = stats.map((g) => g.game_id).filter(Boolean);
 
@@ -33,38 +33,56 @@ export async function getMatchupHistoryCombo({
         (game.home_team_id === g.team_id && game.visitor_team_id === opponentTeamId) ||
         (game.visitor_team_id === g.team_id && game.home_team_id === opponentTeamId);
 
-      const minutes = parseInt(g.min, 10);
+      const mins = parseInt(g.min, 10);
       return (
         isOpponent &&
-        !isNaN(minutes) &&
-        minutes >= 10 &&
+        !isNaN(mins) &&
+        mins >= 10 &&
         statColumns.every((col) => g[col] != null)
       );
     });
   };
 
-  const valueSum = (g) => statColumns.reduce((sum, col) => sum + (g[col] || 0), 0);
+  const sum = (arr, fn) =>
+    arr.reduce((total, item) => total + fn(item), 0);
+
+  const valueSum = (g) =>
+    statColumns.reduce((sum, col) => sum + (g[col] || 0), 0);
 
   const currentMatchups = await fetchGames(currentSeason);
-  const prevMatchups = await fetchGames(previousSeason);
+  const previousMatchups = await fetchGames(previousSeason);
 
-  const average = (arr) =>
-    arr.length ? +(arr.reduce((t, g) => t + valueSum(g), 0) / arr.length).toFixed(1) : null;
+  const currentAverage = currentMatchups.length
+    ? +(sum(currentMatchups, valueSum) / currentMatchups.length).toFixed(1)
+    : null;
+
+  const previousAverage = previousMatchups.length
+    ? +(sum(previousMatchups, valueSum) / previousMatchups.length).toFixed(1)
+    : null;
+
+  const currentGames = currentMatchups.map((g) => ({
+    date: g.game_date,
+    stats: Object.fromEntries(
+      statColumns.map((col) => [col, g[col]])
+    ),
+    total: valueSum(g),
+  }));
 
   return {
     currentSeason: {
-      average: average(currentMatchups),
+      average: currentAverage,
       gamesAnalyzed: currentMatchups.length,
       context: currentMatchups.length
-        ? `This season, the player has averaged ${average(currentMatchups)} in ${currentMatchups.length} matchups vs this team.`
-        : "No current-season matchups available yet.",
+        ? `This season, the player has averaged ${currentAverage} across ${currentMatchups.length} matchups.`
+        : "No current-season matchups found against this team.",
+      games: currentGames,
     },
     previousSeason: {
-      average: average(prevMatchups),
-      gamesAnalyzed: prevMatchups.length,
-      context: prevMatchups.length
-        ? `Last season, the player averaged ${average(prevMatchups)} in ${prevMatchups.length} matchups vs this team.`
-        : "No matchups found last season vs this team.",
+      average: previousAverage,
+      gamesAnalyzed: previousMatchups.length,
+      context: previousMatchups.length
+        ? `Last season, the player averaged ${previousAverage} in ${previousMatchups.length} matchups.`
+        : "No previous-season matchups found against this team.",
     },
   };
 }
