@@ -1,9 +1,10 @@
-import { getLast10ComboHitRate } from "./last10Combo.js";
-import { getSeasonVsLast3Combo } from "./seasonVsLast3Combo.js";
-import { getMatchupHistoryCombo } from "./matchupHistoryCombo.js";
-import { getComboHomeAwaySplit } from "./homeAwaySplitCombo.js";
+import { getLast10ComboHitRate }      from "./last10Combo.js";
+import { getSeasonVsLast3Combo }      from "./seasonVsLast3Combo.js";
+import { getMatchupHistoryCombo }     from "./matchupHistoryCombo.js";
+import { getComboHomeAwaySplit }      from "./homeAwaySplitCombo.js";
 import { getComboRestDayPerformance } from "./restDayPerformanceCombo.js";
-import { getComboPaceContext } from "./paceContextCombo.js";
+import { getComboPaceContext }        from "./paceContextCombo.js";
+import { getPositionalDefenseCombo }  from "./positionalDefenseCombo.js";   // 🆕 NEW
 
 export async function getComboInsights({
   playerId,
@@ -19,7 +20,7 @@ export async function getComboInsights({
   console.log("📦 [Combo] Running insights for:", statType);
 
   try {
-    // ✅ Insight 1 — Last 10 Game Hit Rate (Combo)
+    /* ---------- Insight 1 — Last‑10 Hit Rate ---------- */
     insights.insight_1_hit_rate = await getLast10ComboHitRate({
       playerId,
       statColumns,
@@ -27,14 +28,14 @@ export async function getComboInsights({
       supabase,
     });
 
-    // ✅ Insight 2 — Season Avg vs Last 3 Games (Combo)
+    /* ---------- Insight 2 — Season Avg vs Last 3 ---------- */
     insights.insight_2_season_vs_last3 = await getSeasonVsLast3Combo({
       playerId,
       statColumns,
       supabase,
     });
 
-    // ✅ Insight 3 — Matchup History (Current + Previous Season)
+    /* ---------- Insight 3 — Matchup History ---------- */
     insights.insight_3_matchup_history = await getMatchupHistoryCombo({
       playerId,
       opponentTeamId,
@@ -42,7 +43,7 @@ export async function getComboInsights({
       supabase,
     });
 
-    // ✅ Insight 4 — Home vs Away Split (Combo)
+    /* ---------- Insight 4 — Home / Away Split ---------- */
     insights.insight_4_home_away_split = await getComboHomeAwaySplit({
       playerId,
       teamId,
@@ -50,18 +51,35 @@ export async function getComboInsights({
       supabase,
     });
 
-    // ✅ Insight 5 — Rest Day Performance (Combo)
+    /* ---------- Insight 5 — Rest‑Day Performance ---------- */
     insights.insight_5_rest_day_performance = await getComboRestDayPerformance({
       playerId,
       statType,
       supabase,
     });
 
-    // ✅ Insight 6 — Opponent Pace Context (Combo)
+    /* ---------- Insight 6 — Opponent Pace Context ---------- */
     insights.insight_6_pace_context = await getComboPaceContext({
       opponentTeamId,
       supabase,
     });
+
+    /* ---------- Insight 7 — Positional Defense (Combo) ---------- */
+    /* fetch player's listed position once */
+    const { data: posRow, error: posErr } = await supabase
+      .from("players")
+      .select("position")
+      .eq("player_id", playerId)
+      .maybeSingle();
+
+    if (!posErr && posRow?.position) {
+      insights.insight_7_positional_defense = await getPositionalDefenseCombo({
+        opponentTeamId,
+        position: posRow.position,   // e.g., "SF", "PG"
+        statType,                    // "pras" | "pr" | "pa" | "ra"
+        supabase,
+      });
+    }
 
   } catch (err) {
     console.error("❌ Combo insights failed:", err.message);
