@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
-import { getComboInsights } from "../insights/comboIndex.js"; // ✅ Make sure this file and path exist
+import { getComboInsights } from "../insights/comboIndex.js";
 
-console.log("🚀 /api/pras.js loaded"); // helpful Vercel log
+console.log("🚀 /api/pras.js loaded"); // confirm file loaded on Vercel
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -23,40 +23,40 @@ export default async function prasHandler(req, res) {
   }
 
   const normalize = (str) =>
-    str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    str
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // remove accents
+      .replace(/[^\w\s]/gi, "")        // remove punctuation
+      .toLowerCase()
+      .trim();
 
-  const [firstNameRaw, ...lastPartsRaw] = player.trim().split(" ");
-  const firstName = normalize(firstNameRaw);
-  const lastName = normalize(lastPartsRaw.join(" "));
+  const normalizedTarget = normalize(player); // "michael porter jr"
 
   const statType = "pras";
   const statColumns = ["pts", "reb", "ast"];
 
   try {
-    // 🔍 Get all players and match using normalized names
     const { data: players, error: playerError } = await supabase
       .from("players")
       .select("player_id, team_id, first_name, last_name");
 
     if (playerError || !players?.length) {
-      console.error("❌ Failed to fetch player list:", playerError);
+      console.error("❌ Failed to fetch players:", playerError);
       return res.status(500).json({ error: "Failed to fetch players" });
     }
 
-    const playerRow = players.find(
-      (p) =>
-        normalize(p.first_name) === firstName &&
-        normalize(p.last_name) === lastName
-    );
+    const playerRow = players.find((p) => {
+      const fullName = `${p.first_name} ${p.last_name}`;
+      return normalize(fullName) === normalizedTarget;
+    });
 
     if (!playerRow) {
-      console.error("❌ Player not found:", { firstName, lastName });
+      console.error("❌ Player not found:", normalizedTarget);
       return res.status(404).json({ error: "Player not found" });
     }
 
     const { player_id, team_id } = playerRow;
 
-    // 🏀 Get next opponent team
     const { data: upcomingGames, error: gameError } = await supabase
       .from("games")
       .select("home_team_id, visitor_team_id, status")
@@ -77,7 +77,6 @@ export default async function prasHandler(req, res) {
         ? nextGame?.visitor_team_id
         : nextGame?.home_team_id;
 
-    // 🚀 Run insights
     const insights = await getComboInsights({
       playerId: player_id,
       statType,
