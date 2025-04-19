@@ -1,90 +1,37 @@
-import { getLast10ComboHitRate }      from "./last10Combo.js";
-import { getSeasonVsLast3Combo }      from "./seasonVsLast3Combo.js";
-import { getMatchupHistoryCombo }     from "./matchupHistoryCombo.js";
-import { getComboHomeAwaySplit }      from "./homeAwaySplitCombo.js";
-import { getComboRestDayPerformance } from "./restDayPerformanceCombo.js";
-import { getComboPaceContext }        from "./paceContextCombo.js";
-import { getPositionalDefenseCombo }  from "./positionalDefenseCombo.js";   // 🆕 NEW
-
-export async function getComboInsights({
-  playerId,
-  statType,
-  statColumns,
-  line,
-  teamId,
+export async function getPositionalDefenseCombo({
   opponentTeamId,
+  position,
+  statType,
   supabase,
 }) {
-  const insights = {};
-
-  console.log("📦 [Combo] Running insights for:", statType);
-
   try {
-    /* ---------- Insight 1 — Last‑10 Hit Rate ---------- */
-    insights.insight_1_hit_rate = await getLast10ComboHitRate({
-      playerId,
-      statColumns,
-      line,
-      supabase,
-    });
-
-    /* ---------- Insight 2 — Season Avg vs Last 3 ---------- */
-    insights.insight_2_season_vs_last3 = await getSeasonVsLast3Combo({
-      playerId,
-      statColumns,
-      supabase,
-    });
-
-    /* ---------- Insight 3 — Matchup History ---------- */
-    insights.insight_3_matchup_history = await getMatchupHistoryCombo({
-      playerId,
-      opponentTeamId,
-      statColumns,
-      supabase,
-    });
-
-    /* ---------- Insight 4 — Home / Away Split ---------- */
-    insights.insight_4_home_away_split = await getComboHomeAwaySplit({
-      playerId,
-      teamId,
-      statColumns,
-      supabase,
-    });
-
-    /* ---------- Insight 5 — Rest‑Day Performance ---------- */
-    insights.insight_5_rest_day_performance = await getComboRestDayPerformance({
-      playerId,
-      statType,
-      supabase,
-    });
-
-    /* ---------- Insight 6 — Opponent Pace Context ---------- */
-    insights.insight_6_pace_context = await getComboPaceContext({
-      opponentTeamId,
-      supabase,
-    });
-
-    /* ---------- Insight 7 — Positional Defense (Combo) ---------- */
-    /* fetch player's listed position once */
-    const { data: posRow, error: posErr } = await supabase
-      .from("players")
-      .select("position")
-      .eq("player_id", playerId)
+    const { data, error } = await supabase
+      .from("positional_defense_rankings")
+      .select("defense_team_id, position, stat_type, value, rank")
+      .eq("defense_team_id", opponentTeamId)
+      .eq("position", position)
+      .eq("stat_type", statType) // e.g., "pras", "pr", etc.
       .maybeSingle();
 
-    if (!posErr && posRow?.position) {
-      insights.insight_7_positional_defense = await getPositionalDefenseCombo({
-        opponentTeamId,
-        position: posRow.position,   // e.g., "SF", "PG"
-        statType,                    // "pras" | "pr" | "pa" | "ra"
-        supabase,
-      });
+    if (error || !data) {
+      return {
+        skip: true,
+        context: "Opponent positional defense data is unavailable.",
+      };
     }
 
+    const { value, rank } = data;
+
+    let interpretation = "average";
+    if (rank <= 10) interpretation = "favorable";
+    if (rank >= 21) interpretation = "tough";
+
+    return {
+      allowed: value,
+      rank,
+      context: `This team ranks ${rank} in the NBA vs ${position}s for ${statType.toUpperCase()} — this is considered a ${interpretation} matchup.`,
+    };
   } catch (err) {
-    console.error("❌ Combo insights failed:", err.message);
     return { error: err.message };
   }
-
-  return insights;
 }
