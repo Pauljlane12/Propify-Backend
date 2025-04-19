@@ -1,5 +1,6 @@
 import { getLast10ComboHitRate } from "./last10Combo.js";
 import { getSeasonVsLast3Combo } from "./seasonVsLast3Combo.js";
+import { getMatchupHistoryCombo } from "./matchupHistoryCombo.js";
 
 export async function getComboInsights({
   playerId,
@@ -30,8 +31,15 @@ export async function getComboInsights({
       supabase,
     });
 
-    // ⏳ Add more combo insights here as you build them:
-    // insights.insight_3_matchup_history = ...
+    // ✅ Insight 3 — Matchup History (Combo, both seasons)
+    insights.insight_3_matchup_history = await getMatchupHistoryCombo({
+      playerId,
+      opponentTeamId,
+      statColumns,
+      supabase,
+    });
+
+    // ⏳ Upcoming:
     // insights.insight_4_home_away_split = ...
     // insights.insight_5_rest_day_performance = ...
 
