@@ -1,5 +1,5 @@
 import { getLast10ComboHitRate } from "./last10Combo.js";
-// import { getSeasonVsLast3Combo } from "./seasonVsLast3Combo.js"; // removed for now
+import { getSeasonVsLast3Combo } from "./seasonVsLast3Combo.js";
 
 export async function getComboInsights({
   playerId,
@@ -23,8 +23,17 @@ export async function getComboInsights({
       supabase,
     });
 
-    // ⏳ Additional combo insights can be added below as you build them:
-    // insights.insight_2_season_vs_last3 = await getSeasonVsLast3Combo(...)
+    // ✅ Insight 2 — Season Avg vs Last 3 Games (Combo)
+    insights.insight_2_season_vs_last3 = await getSeasonVsLast3Combo({
+      playerId,
+      statColumns,
+      supabase,
+    });
+
+    // ⏳ Add more combo insights here as you build them:
+    // insights.insight_3_matchup_history = ...
+    // insights.insight_4_home_away_split = ...
+    // insights.insight_5_rest_day_performance = ...
 
   } catch (err) {
     console.error("❌ Combo insights failed:", err.message);
