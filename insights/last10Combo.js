@@ -1,34 +1,44 @@
 import { getMostRecentSeason } from "../utils/getMostRecentSeason.js";
 
-export async function getLast10ComboHitRate({ playerId, statColumns, line, supabase }) {
+export async function getLast10ComboHitRate({
+  playerId,
+  statColumns,   // e.g. ["pts", "reb", "ast"]
+  line,
+  supabase,
+}) {
   const currentSeason = await getMostRecentSeason(supabase);
 
-  // 1. Check if player has at least 10 valid games this season
-  const { data: currentGames, error: currentError } = await supabase
+  // Helper: build the column list string once
+  const columnList = [...statColumns, "min", "game_date"].join(", ");
+
+  /* ---------- 1. How many valid games this season? ---------- */
+  const { data: currentGames, error: currentErr } = await supabase
     .from("player_stats")
-    .select([...statColumns, "min", "game_date"])
+    .select(columnList)                 // ✅ pass string, not array
     .eq("player_id", playerId)
     .eq("game_season", currentSeason)
     .order("game_date", { ascending: false })
-    .limit(20);
+    .limit(20);                         // pull extras in case of DNPs
 
-  if (currentError) return { error: currentError.message };
+  if (currentErr) return { error: currentErr.message };
 
   const currentValid = (currentGames || []).filter((g) => {
-    const minutes = parseInt(g.min, 10);
+    const mins = parseInt(g.min, 10);
     return (
-      !isNaN(minutes) &&
-      minutes >= 10 &&
-      statColumns.every((col) => g[col] !== null && g[col] !== undefined)
+      !isNaN(mins) &&
+      mins >= 10 &&
+      statColumns.every((col) => g[col] != null)
     );
   });
 
-  // 2. Use fallback season if not enough current games
-  const seasonToUse = currentValid.length >= 10 ? currentSeason : currentSeason - 1;
+  /* ---------- 2. Decide which season to use ---------- */
+  const seasonToUse =
+    currentValid.length >= 10 ? currentSeason : currentSeason - 1;
 
+  /* ---------- 3. Pull games from the chosen season ---------- */
   const { data: stats, error } = await supabase
     .from("player_stats")
-    .select([...statColumns, "min", "game_date"])
+    .select(columnList)                 // ✅ same fix here
     .eq("player_id", playerId)
     .eq("game_season", seasonToUse)
     .order("game_date", { ascending: false })
@@ -36,20 +46,19 @@ export async function getLast10ComboHitRate({ playerId, statColumns, line, supab
 
   if (error) return { error: error.message };
 
-  // 3. Filter valid games
+  /* ---------- 4. Filter valid games ---------- */
   const valid = (stats || []).filter((g) => {
-    const minutes = parseInt(g.min, 10);
+    const mins = parseInt(g.min, 10);
     return (
-      !isNaN(minutes) &&
-      minutes >= 10 &&
-      statColumns.every((col) => g[col] !== null && g[col] !== undefined)
+      !isNaN(mins) &&
+      mins >= 10 &&
+      statColumns.every((col) => g[col] != null)
     );
   });
 
-  // 4. Get last 10 valid games
   const last10 = valid.slice(0, 10);
 
-  // 5. Sum up combined stat value
+  /* ---------- 5. Calculate hit rate ---------- */
   const valueSum = (g) =>
     statColumns.reduce((sum, col) => sum + (g[col] || 0), 0);
 
@@ -61,9 +70,10 @@ export async function getLast10ComboHitRate({ playerId, statColumns, line, supab
     totalGames: last10.length,
     seasonUsed: seasonToUse,
     context:
-      `Using ${seasonToUse} data, this player has hit the line in ${hitCount} of their last ${last10.length} games.` +
+      `Using ${seasonToUse} data, this player has hit the line in ` +
+      `${hitCount} of their last ${last10.length} games.` +
       (seasonToUse !== currentSeason
-        ? " No valid games from the current season yet, so data is based on the previous season."
+        ? " No valid games from the current season yet; using previous season."
         : ""),
   };
 }
