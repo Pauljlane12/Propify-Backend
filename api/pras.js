@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { getInsightsForStat } from "../insights/index.js";
+import { getComboInsights } from "../insights/comboIndex.js"; // ✅ Use the combo version
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -18,18 +18,27 @@ export default async function prasHandler(req, res) {
     return res.status(400).json({ error: "Missing or invalid player or line" });
   }
 
-  const [firstName, ...lastParts] = player.trim().split(" ");
-  const lastName = lastParts.join(" ");
-  const statType = "pras"; // ✅ Points + Rebounds + Assists
-  const statColumns = ["pts", "reb", "ast"]; // ✅ Actual stat fields used
+  const normalize = (str) =>
+    str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
+  const [firstNameRaw, ...lastPartsRaw] = player.trim().split(" ");
+  const firstName = normalize(firstNameRaw);
+  const lastName = normalize(lastPartsRaw.join(" "));
+
+  const statType = "pras"; // Points + Rebounds + Assists
+  const statColumns = ["pts", "reb", "ast"]; // combo columns
 
   try {
     const { data: playerRow } = await supabase
       .from("players")
-      .select("player_id, team_id")
-      .ilike("first_name", `%${firstName}%`)
-      .ilike("last_name", `%${lastName}%`)
-      .maybeSingle();
+      .select("player_id, team_id, first_name, last_name")
+      .then(({ data }) =>
+        data?.find(
+          (p) =>
+            normalize(p.first_name) === firstName &&
+            normalize(p.last_name) === lastName
+        )
+      );
 
     if (!playerRow) {
       return res.status(404).json({ error: "Player not found" });
@@ -51,10 +60,10 @@ export default async function prasHandler(req, res) {
         ? nextGame?.visitor_team_id
         : nextGame?.home_team_id;
 
-    const insights = await getInsightsForStat({
+    const insights = await getComboInsights({
       playerId: player_id,
       statType,
-      statColumns, // ✅ This enables combo stat logic
+      statColumns,
       line,
       teamId: team_id,
       opponentTeamId,
