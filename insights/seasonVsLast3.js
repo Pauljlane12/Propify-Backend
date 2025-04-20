@@ -1,94 +1,92 @@
 // insights/seasonVsLast3.js
 //--------------------------------------------------------------
-// Season‑Average vs Last‑3 insight (future‑proofed version)
-// • seasonAvg comes from season_averages (fast).
-// • fallback to on‑the‑fly calculation if the row is missing.
-// • Last‑3 logic:   0 games, 1‑2 games, or ≥3 games in curr season.
-// • Uses 2‑minute floor for valid games.
+// Season‑Avg vs Last‑3 insight (≥2‑minute filter everywhere)
+// • seasonAvg is calculated with the same filter, by season
+// • 0‑game / 1‑2‑game / 3‑game logic retained
 //--------------------------------------------------------------
 
 import { getMostRecentSeason } from "../utils/getMostRecentSeason.js";
 
-const MINUTES_FLOOR = 2;           // ← changed from 10 ➜ 2
+const MINUTES_FLOOR = 2;
 
-export async function getSeasonVsLast3({
-  playerId,
-  statType,           // e.g. "pts", "reb", "pra"
-  supabase,
-}) {
+/* Helper: fetch season average with ≥2‑minute filter */
+async function fetchSeasonAverage({ supabase, playerId, statType, season }) {
+  const { data, error } = await supabase
+    .from("player_stats")
+    .select(`AVG(${statType})`, { head: false, count: "exact" })
+    .eq("player_id", playerId)
+    .eq("game_season", season)
+    .not(statType, "is", null)
+    .not("min", "is", null)
+    .filter("min", "regex", "^[0-9]+$")
+    .filter("min", "gte", MINUTES_FLOOR);
+
+  if (error || !data?.length) return null;
+  const avg = data[0].avg ?? data[0].[`avg(${statType})`]; // Supabase naming quirk
+  return avg === null ? null : +(+avg).toFixed(1);
+}
+
+export async function getSeasonVsLast3({ playerId, statType, supabase }) {
   try {
-    /* 1️⃣  Get current/previous season values */
-    const currentSeason   = await getMostRecentSeason(supabase);
-    const previousSeason  = currentSeason - 1;
+    const currentSeason  = await getMostRecentSeason(supabase);
+    const previousSeason = currentSeason - 1;
 
-    /* 2️⃣  Fetch current + previous season rows (max 40) */
+    /* 1️⃣  Pull last 40 games (two seasons) with ≥2‑min filter */
     const { data, error } = await supabase
       .from("player_stats")
       .select(`${statType}, min, game_date, game_season`)
       .eq("player_id", playerId)
       .in("game_season", [currentSeason, previousSeason])
+      .not(statType, "is", null)
+      .not("min", "is", null)
+      .filter("min", "regex", "^[0-9]+$")
+      .filter("min", "gte", MINUTES_FLOOR)
       .order("game_date", { ascending: false })
       .limit(40);
 
     if (error) return { error: error.message };
+    if (!data?.length) return { error: "No valid games found for player." };
 
-    /* 3️⃣  Filter to ≥ 2‑min games */
-    const valid = (data || []).filter((g) => {
-      const mins = parseInt(g.min, 10);
-      return !isNaN(mins) && mins >= MINUTES_FLOOR && g[statType] != null;
-    });
-    if (!valid.length) return { error: "No valid games found for player." };
+    const currGames = data.filter((g) => g.game_season === currentSeason);
+    const prevGames = data.filter((g) => g.game_season === previousSeason);
 
-    /* 4️⃣  Split games by season */
-    const currGames = valid.filter((g) => g.game_season === currentSeason);
-    const prevGames = valid.filter((g) => g.game_season === previousSeason);
+    /* 2️⃣  Season average (same ≥2‑min filter) */
+    let seasonSource    = currGames.length ? "current" : "last";
+    let seasonAvg =
+      (await fetchSeasonAverage({
+        supabase,
+        playerId,
+        statType,
+        season: seasonSource === "current" ? currentSeason : previousSeason,
+      })) ?? null;
 
-    /* 5️⃣  Grab seasonAvg from season_averages table first */
-    async function readSeasonAverage(season) {
-      const { data: row, error: err } = await supabase
-        .from("season_averages")
-        .select(statType)
-        .eq("player_id", playerId)
-        .eq("season", season)
-        .single();
-      return err || !row ? null : row[statType];
-    }
-
-    let seasonSource     = currGames.length ? "current" : "last";
-    let seasonAvgNumeric =
-      (await readSeasonAverage(
-        seasonSource === "current" ? currentSeason : previousSeason
-      )) ?? null;
-
-    /* Fallback if the season_averages row doesn't exist yet */
-    if (seasonAvgNumeric === null) {
+    // Fallback if aggregation somehow returns null
+    if (seasonAvg === null) {
       const pool = seasonSource === "current" ? currGames : prevGames;
-      seasonAvgNumeric =
-        pool.reduce((s, g) => s + g[statType], 0) / pool.length;
+      seasonAvg =
+        +(
+          pool.reduce((sum, g) => sum + g[statType], 0) / pool.length
+        ).toFixed(1);
     }
 
-    /* 6️⃣  Build last‑3 pool */
+    /* 3️⃣  Build last‑3 pool with season‑aware fallback */
     const last3Pool =
       currGames.length >= 3
         ? currGames.slice(0, 3)
         : [...currGames, ...prevGames.slice(0, 3 - currGames.length)];
 
-    const last3AvgNumeric =
-      last3Pool.reduce((s, g) => s + g[statType], 0) / last3Pool.length;
+    const last3Avg = +(
+      last3Pool.reduce((sum, g) => sum + g[statType], 0) / last3Pool.length
+    ).toFixed(1);
 
-    /* 7️⃣  Helpers */
-    const round = (n) => +n.toFixed(1);
-    const seasonAvg = round(seasonAvgNumeric);
-    const last3Avg  = round(last3AvgNumeric);
-    const diff      = round(last3Avg - seasonAvg);
-
-    /* 8️⃣  Explanation */
+    /* 4️⃣  Explanation (same wording logic) */
     let explanation;
     if (seasonSource === "last") {
       explanation = `He hasn't played yet this season. Last season he averaged **${seasonAvg} ${statType}**, and in his last 3 games he averaged **${last3Avg}**.`;
     } else if (currGames.length < 3) {
-      explanation = `He's played only ${currGames.length} game${currGames.length === 1 ? "" : "s"} this season. Over his last 3 games (some from last season) he averages **${last3Avg} ${statType}**, vs a current‑season average of **${seasonAvg}**.`;
+      explanation = `He's played only ${currGames.length} game${currGames.length === 1 ? "" : "s"} this season. Over his last 3 games (some from last season) he averages **${last3Avg} ${statType}**, versus a current‑season average of **${seasonAvg}**.`;
     } else {
+      const diff = +(last3Avg - seasonAvg).toFixed(1);
       explanation =
         diff > 0
           ? `He's averaging **${last3Avg} ${statType}** over his last 3 games — **${diff} more** than his season average of ${seasonAvg}.`
@@ -97,7 +95,7 @@ export async function getSeasonVsLast3({
           : `He's averaging **${last3Avg} ${statType}** over his last 3 games, matching his season average.`;
     }
 
-    /* 9️⃣  Return clean insight */
+    /* 5️⃣  Return */
     return {
       statType,
       seasonAvg,
