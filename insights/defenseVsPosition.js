@@ -6,7 +6,7 @@ export async function getDefenseVsPosition({
   supabase,
 }) {
   try {
-    // Step 1: Get player position
+    // 1️⃣ Get player's position (from active_players, fallback to players)
     const { data: activeRow } = await supabase
       .from("active_players")
       .select("true_position")
@@ -22,7 +22,7 @@ export async function getDefenseVsPosition({
     const playerPosition =
       activeRow?.true_position || fallbackRow?.position || "PG";
 
-    // Step 2: Pick correct column and rank key
+    // 2️⃣ Define the stat and rank column based on statType
     const columnMap = {
       pts: ["points_allowed", "points_allowed_rank"],
       reb: ["rebounds_allowed", "rebounds_allowed_rank"],
@@ -50,12 +50,10 @@ export async function getDefenseVsPosition({
       return { error: `Unsupported statType "${statType}"` };
     }
 
-    // Step 3: Query the table
+    // 3️⃣ Query the positional defense ranking table
     const { data: result, error } = await supabase
       .from("positional_defense_rankings_top_minute")
-      .select(
-        `${valueCol}, ${rankCol}, games_sampled, defense_team_name`
-      )
+      .select(`${valueCol}, ${rankCol}, games_sampled, defense_team_name`)
       .eq("position", playerPosition)
       .eq("defense_team_id", opponentTeamId)
       .maybeSingle();
@@ -70,13 +68,26 @@ export async function getDefenseVsPosition({
       };
     }
 
+    // 4️⃣ Build visual-friendly summary
+    const statLabel = statType.toUpperCase();
+    const statAvg = +result[valueCol].toFixed(1);
+    const statRank = result[rankCol];
+    const defenseTeam = result.defense_team_name;
+
+    const tier =
+      statRank <= 10
+        ? "✅ favorable"
+        : statRank >= 21
+        ? "⚠️ tough"
+        : "🟨 neutral";
+
     return {
       statType,
       position: playerPosition,
-      value: result[valueCol],
-      rank: result[rankCol],
+      value: statAvg,
+      rank: statRank,
       games_sampled: result.games_sampled,
-      summary: `This season, ${playerPosition}s have averaged ${result[valueCol]} ${statType.toUpperCase()} vs the ${result.defense_team_name}, ranking #${result[rankCol]} in the NBA.`,
+      summary: `${tier} matchup — ${playerPosition}s are averaging **${statAvg} ${statLabel}** vs the **${defenseTeam}**, who rank **#${statRank}** in defensive efficiency at that position.`,
     };
   } catch (err) {
     return { error: err.message };
