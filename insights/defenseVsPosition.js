@@ -6,7 +6,7 @@ export async function getDefenseVsPosition({
   supabase,
 }) {
   try {
-    // 1️⃣ Get player's position
+    // 1️⃣ Get the player's position
     const { data: activeRow } = await supabase
       .from("active_players")
       .select("true_position")
@@ -22,7 +22,7 @@ export async function getDefenseVsPosition({
     const playerPosition =
       activeRow?.true_position || fallbackRow?.position || "PG";
 
-    // 2️⃣ Stat column + rank mapping
+    // 2️⃣ Stat-to-column map
     const columnMap = {
       pts: ["points_allowed", "points_allowed_rank"],
       reb: ["rebounds_allowed", "rebounds_allowed_rank"],
@@ -49,7 +49,7 @@ export async function getDefenseVsPosition({
       return { error: `Unsupported statType "${statType}"` };
     }
 
-    // 3️⃣ Pull opponent defense data
+    // 3️⃣ Pull the defense data for team vs position
     const { data: result, error } = await supabase
       .from("positional_defense_rankings_top_minute")
       .select(`${valueCol}, ${rankCol}, defense_team_name`)
@@ -64,11 +64,13 @@ export async function getDefenseVsPosition({
       };
     }
 
-    // 4️⃣ Clean formatting
+    // 4️⃣ Prepare dynamic explanation
     const statLabel = statType.toUpperCase();
     const statAvg = +result[valueCol].toFixed(1);
     const statRank = result[rankCol];
     const defenseTeam = result.defense_team_name;
+    const position = playerPosition;
+
     const tier =
       statRank <= 10
         ? "✅ Favorable matchup"
@@ -76,12 +78,39 @@ export async function getDefenseVsPosition({
         ? "⚠️ Tough matchup"
         : "🟨 Neutral matchup";
 
-    // 5️⃣ Final summary string
-    const summary = `${tier} — Starting ${playerPosition}s are averaging **${statAvg} ${statLabel}** vs the **${defenseTeam}**, which ranks **#${statRank} in the NBA this season**.`;
+    // 🔁 Verb map for natural phrasing
+    const verbMap = {
+      pts: "give up",
+      reb: "allow",
+      ast: "allow",
+      fg3m: "allow",
+      pra: "give up",
+      pts_ast: "surrender",
+      fg_made: "allow",
+      dreb: "allow",
+      reb_ast: "allow",
+      oreb: "give up",
+      fg3a: "yield",
+      ftm: "allow",
+      fga: "allow",
+      pts_reb: "give up",
+      blk: "allow",
+      stl: "allow",
+      blk_stl: "allow",
+      turnover: "force", // this one flips!
+    };
+
+    const verb = verbMap[statType] || "allow";
+
+    // 📝 Final summary
+    const summary =
+      statType === "turnover"
+        ? `${tier} — The **${defenseTeam}** force an average of **${statAvg} TURNOVERS** from starting ${position}s this season, which ranks **#${statRank} in the NBA**.`
+        : `${tier} — The **${defenseTeam}** ${verb} **${statAvg} ${statLabel}** to starting ${position}s this season, which ranks **#${statRank} in the NBA**.`;
 
     return {
       statType,
-      position: playerPosition,
+      position,
       value: statAvg,
       rank: statRank,
       summary,
