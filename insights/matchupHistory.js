@@ -55,6 +55,7 @@ export async function getMatchupHistory({
       .limit(1)
       .maybeSingle();
 
+    // 3️⃣ Get opponent team name
     const { data: teamMeta } = await supabase
       .from("teams")
       .select("full_name")
@@ -63,13 +64,14 @@ export async function getMatchupHistory({
 
     const teamName = teamMeta?.full_name || "the opponent";
 
-    // 3️⃣ Hit logic from stat_list
-    const statList = curr?.stat_list || [];
-    const hitCount = statList.filter((val) => val >= bettingLine).length;
+    // 4️⃣ Process stat list and hit count
+    const statList = (curr?.stat_list || []).map(Number); // force numeric
     const gameCount = statList.length;
+    const hitCount = statList.filter((val) => val >= bettingLine).length;
     const avg = curr?.avg_value ? +curr.avg_value.toFixed(1) : null;
     const allTimeAvg = allTime?.avg_value ? +allTime.avg_value.toFixed(1) : null;
 
+    // 5️⃣ Build final explanation
     let context;
 
     if (avg && gameCount > 0) {
