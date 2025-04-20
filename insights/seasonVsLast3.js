@@ -30,14 +30,14 @@ async function getSeasonVsLast3({ playerId, statType, supabase }) {
     const currentSeason  = await getMostRecentSeason(supabase);
     const previousSeason = currentSeason - 1;
 
-    // 🔹 Get regular-season game IDs for current + previous seasons
+    // 🔹 Get all regular-season game IDs for current and previous seasons
     const { ids: allIds, bySeason } = await getRegularSeasonGameIds(
       supabase,
       [currentSeason, previousSeason]
     );
     if (!allIds.length) return { error: "No regular-season games found." };
 
-    // 🔹 Pull player game logs (≥2 minutes, regular season only)
+    // 🔹 Pull player logs from player_stats
     const { data, error } = await supabase
       .from("player_stats")
       .select(`${statType}, min, game_date, game_season`)
@@ -52,10 +52,11 @@ async function getSeasonVsLast3({ playerId, statType, supabase }) {
     if (!data?.length)
       return { error: "No valid regular-season games found for player." };
 
+    // 🔹 Separate games by season
     const currGames = data.filter((g) => g.game_season === currentSeason);
     const prevGames = data.filter((g) => g.game_season === previousSeason);
 
-    // 🔹 Season source logic
+    // 🔹 Decide season source
     const seasonSource = currGames.length ? "current" : "last";
     const seasonYear   = seasonSource === "current" ? currentSeason : previousSeason;
 
@@ -73,17 +74,14 @@ async function getSeasonVsLast3({ playerId, statType, supabase }) {
 
     const seasonAvg = +(+avgData.stat_value).toFixed(1);
 
-    // 🔹 Last 3-game pool (prioritizing current season)
-    const last3Pool =
-      currGames.length >= 3
-        ? currGames.slice(0, 3)
-        : [...currGames, ...prevGames.slice(0, 3 - currGames.length)];
+    // 🔹 Last 3-game pool (2-minute floor already applied above, sorted DESC)
+    const last3Pool = data.slice(0, 3); // top 3 most recent qualifying games
 
     const last3Avg = +(
       last3Pool.reduce((s, g) => s + g[statType], 0) / last3Pool.length
     ).toFixed(1);
 
-    // 🔹 Explanation logic
+    // 🔹 Build explanation
     const diff = +(last3Avg - seasonAvg).toFixed(1);
     let explanation;
 
@@ -104,7 +102,7 @@ async function getSeasonVsLast3({ playerId, statType, supabase }) {
           : `He's averaging **${last3Avg} ${statType}** over his last 3 games, matching his season average.`;
     }
 
-    // 🔹 Return result
+    // 🔹 Return structured output
     return {
       statType,
       seasonAvg,
