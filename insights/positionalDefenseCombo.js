@@ -5,12 +5,28 @@ export async function getPositionalDefenseCombo({
   supabase,
 }) {
   try {
+    // Map combo stat types to the correct columns
+    const columnMap = {
+      pras: ["pras_allowed", "pras_allowed_rank"],
+      pr:   ["points_rebounds_allowed", "points_rebounds_allowed_rank"],
+      pa:   ["points_assists_allowed", "points_assists_allowed_rank"],
+      ra:   ["rebounds_assists_allowed", "rebounds_assists_allowed_rank"],
+    };
+
+    const [valueCol, rankCol] = columnMap[statType] || [];
+
+    if (!valueCol || !rankCol) {
+      return {
+        skip: true,
+        context: `Unsupported stat type "${statType}" for combo positional defense.`,
+      };
+    }
+
     const { data, error } = await supabase
-      .from("positional_defense_rankings")
-      .select("defense_team_id, position, stat_type, value, rank")
+      .from("positional_defense_rankings_top_minute")
+      .select(`${valueCol}, ${rankCol}, defense_team_name`)
       .eq("defense_team_id", opponentTeamId)
       .eq("position", position)
-      .eq("stat_type", statType) // e.g., "pras", "pr", etc.
       .maybeSingle();
 
     if (error || !data) {
@@ -20,16 +36,20 @@ export async function getPositionalDefenseCombo({
       };
     }
 
-    const { value, rank } = data;
+    const value = data[valueCol];
+    const rank = data[rankCol];
+    const teamName = data.defense_team_name;
 
-    let interpretation = "average";
-    if (rank <= 10) interpretation = "favorable";
-    if (rank >= 21) interpretation = "tough";
+    let label = "average";
+    if (rank <= 10) label = "favorable";
+    else if (rank >= 21) label = "tough";
 
     return {
-      allowed: value,
+      statType,
+      position,
       rank,
-      context: `This team ranks ${rank} in the NBA vs ${position}s for ${statType.toUpperCase()} — this is considered a ${interpretation} matchup.`,
+      allowed: value,
+      context: `${teamName} ranks #${rank} in the NBA for ${statType.toUpperCase()} allowed to ${position}s — a ${label} matchup.`,
     };
   } catch (err) {
     return { error: err.message };
