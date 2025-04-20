@@ -6,7 +6,7 @@ export async function getDefenseVsPosition({
   supabase,
 }) {
   try {
-    // 1️⃣ Get player's position (from active_players, fallback to players)
+    // 1️⃣ Get player's position
     const { data: activeRow } = await supabase
       .from("active_players")
       .select("true_position")
@@ -22,7 +22,7 @@ export async function getDefenseVsPosition({
     const playerPosition =
       activeRow?.true_position || fallbackRow?.position || "PG";
 
-    // 2️⃣ Define the stat and rank column based on statType
+    // 2️⃣ Stat column + rank mapping
     const columnMap = {
       pts: ["points_allowed", "points_allowed_rank"],
       reb: ["rebounds_allowed", "rebounds_allowed_rank"],
@@ -45,49 +45,46 @@ export async function getDefenseVsPosition({
     };
 
     const [valueCol, rankCol] = columnMap[statType] || [];
-
     if (!valueCol || !rankCol) {
       return { error: `Unsupported statType "${statType}"` };
     }
 
-    // 3️⃣ Query the positional defense ranking table
+    // 3️⃣ Pull opponent defense data
     const { data: result, error } = await supabase
       .from("positional_defense_rankings_top_minute")
-      .select(`${valueCol}, ${rankCol}, games_sampled, defense_team_name`)
+      .select(`${valueCol}, ${rankCol}, defense_team_name`)
       .eq("position", playerPosition)
       .eq("defense_team_id", opponentTeamId)
       .maybeSingle();
 
-    if (error) {
-      return { error: error.message };
-    }
-
+    if (error) return { error: error.message };
     if (!result) {
       return {
         info: "No positional defense data found for this team/position.",
       };
     }
 
-    // 4️⃣ Build visual-friendly summary
+    // 4️⃣ Clean formatting
     const statLabel = statType.toUpperCase();
     const statAvg = +result[valueCol].toFixed(1);
     const statRank = result[rankCol];
     const defenseTeam = result.defense_team_name;
-
     const tier =
       statRank <= 10
-        ? "✅ favorable"
+        ? "✅ Favorable matchup"
         : statRank >= 21
-        ? "⚠️ tough"
-        : "🟨 neutral";
+        ? "⚠️ Tough matchup"
+        : "🟨 Neutral matchup";
+
+    // 5️⃣ Final summary string
+    const summary = `${tier} — Starting ${playerPosition}s are averaging **${statAvg} ${statLabel}** vs the **${defenseTeam}**, which ranks **#${statRank} in the NBA this season**.`;
 
     return {
       statType,
       position: playerPosition,
       value: statAvg,
       rank: statRank,
-      games_sampled: result.games_sampled,
-      summary: `${tier} matchup — ${playerPosition}s are averaging **${statAvg} ${statLabel}** vs the **${defenseTeam}**, who rank **#${statRank}** in defensive efficiency at that position.`,
+      summary,
     };
   } catch (err) {
     return { error: err.message };
