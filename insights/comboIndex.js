@@ -4,7 +4,7 @@ import { getMatchupHistoryCombo }     from "./matchupHistoryCombo.js";
 import { getComboHomeAwaySplit }      from "./homeAwaySplitCombo.js";
 import { getComboRestDayPerformance } from "./restDayPerformanceCombo.js";
 import { getComboPaceContext }        from "./paceContextCombo.js";
-import { getPositionalDefenseCombo }  from "./positionalDefenseCombo.js";   // 🆕 NEW
+import { getPositionalDefenseCombo }  from "./positionalDefenseCombo.js";   // 🆕 auto‑position version
 
 export async function getComboInsights({
   playerId,
@@ -65,21 +65,12 @@ export async function getComboInsights({
     });
 
     /* ---------- Insight 7 — Positional Defense (Combo) ---------- */
-    /* fetch player's listed position once */
-    const { data: posRow, error: posErr } = await supabase
-      .from("players")
-      .select("position")
-      .eq("player_id", playerId)
-      .maybeSingle();
-
-    if (!posErr && posRow?.position) {
-      insights.insight_7_positional_defense = await getPositionalDefenseCombo({
-        opponentTeamId,
-        position: posRow.position,   // e.g., "SF", "PG"
-        statType,                    // "pras" | "pr" | "pa" | "ra"
-        supabase,
-      });
-    }
+    insights.insight_7_positional_defense = await getPositionalDefenseCombo({
+      playerId,          // 🆕 auto-detects position inside the helper
+      opponentTeamId,
+      statType,
+      supabase,
+    });
 
   } catch (err) {
     console.error("❌ Combo insights failed:", err.message);
