@@ -13,6 +13,7 @@ export async function getInsightsForStat({
   playerId,
   statType,
   line,
+  direction,        // ✅ NEW
   teamId,
   opponentTeamId,
   supabase,
@@ -21,12 +22,13 @@ export async function getInsightsForStat({
 
   const statColumns = [statType];
 
-  // ✅ Shared across all props
+  // ✅ Hit Rate - now direction-aware
   insights.insight_1_hit_rate = await getLast10GameHitRate({
     playerId,
     statType,
     statColumns,
     line,
+    direction,      // ✅ Pass direction to support over/under logic
     supabase,
   });
 
@@ -44,12 +46,12 @@ export async function getInsightsForStat({
     supabase,
   });
 
-  // ✅ THIS IS THE KEY UPDATE:
+  // ✅ Matchup history — already fixed
   insights.insight_4_matchup_history = await getMatchupHistory({
     playerId,
     opponentTeamId,
     statType,
-    bettingLine: line, // <-- Pass line as bettingLine!
+    bettingLine: line,
     supabase,
   });
 
