@@ -44,10 +44,12 @@ export async function getInsightsForStat({
     supabase,
   });
 
+  // ✅ THIS IS THE KEY UPDATE:
   insights.insight_4_matchup_history = await getMatchupHistory({
     playerId,
     opponentTeamId,
     statType,
+    bettingLine: line, // <-- Pass line as bettingLine!
     supabase,
   });
 
