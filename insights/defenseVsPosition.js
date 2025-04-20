@@ -71,10 +71,11 @@ export async function getDefenseVsPosition({
     const defenseTeam = result.defense_team_name;
     const position = playerPosition;
 
+    // ✅ Fixed ranking logic: high rank = poor defense = good matchup
     const tier =
-      statRank <= 10
+      statRank >= 21
         ? "✅ Favorable matchup"
-        : statRank >= 21
+        : statRank <= 10
         ? "⚠️ Tough matchup"
         : "🟨 Neutral matchup";
 
