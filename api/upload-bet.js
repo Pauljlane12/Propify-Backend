@@ -1,6 +1,6 @@
 /**
  * /api/upload-bet.js
- * One‑stop player‑prop extractor for multiple sportsbooks
+ * Dynamic player-prop extractor using GPT-4o (PrizePicks/Underdog) or Google Vision (others)
  */
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
@@ -23,24 +23,18 @@ export const config = { api: { bodyParser: false } };
 /* ───────── Button‑theme catalogue ───────── */
 const buttonThemes = [
   {
-    bookmaker: 'prizepicks',        // green highlight
-    keywords:  ['More', 'Less'],
-    selected:  { r:[  0,110], g:[170,255], b:[  0,120] },
+    bookmaker: 'prizepicks',
+    keywords: ['More', 'Less'],
+    selected: { r:[  0,110], g:[170,255], b:[  0,120] },
   },
   {
-    bookmaker: 'underdog',          // cyan
-    keywords:  ['Higher', 'Lower'],
-    selected:  { r:[  0, 80], g:[180,255], b:[200,255] },
+    bookmaker: 'underdog',
+    keywords: ['Higher', 'Lower'],
+    selected: { r:[  0, 80], g:[180,255], b:[200,255] },
   },
-  {
-    bookmaker: 'betrivers',         // red
-    keywords:  ['Over', 'Under'],
-    selected:  { r:[180,255], g:[  0, 90], b:[  0, 90] },
-  },
-  // ➕ add more here
+  // ➕ You can expand with more books if needed
 ];
 
-/* ───────── Helpers ───────── */
 const normalizeName = (t) =>
   t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s]/g, '')
     .toLowerCase().trim();
@@ -66,9 +60,8 @@ const sampleRGB = async (buf, box) => {
   return [pix[0], pix[1], pix[2]];
 };
 
-/* Detect which button (over / under) is highlighted per row */
 async function detectHighlighted(words, imgBuf) {
-  const result = {};     // keyed by approx Y → 'over'|'under'
+  const result = {};
   for (const theme of buttonThemes) {
     const [keyA, keyB] = theme.keywords;
     const btnA = words.filter(w => new RegExp(`^${keyA}$`, 'i').test(w.text));
@@ -76,7 +69,6 @@ async function detectHighlighted(words, imgBuf) {
     const len = Math.min(btnA.length, btnB.length);
     for (let i = 0; i < len; i++) {
       const a = btnA[i], b = btnB[i];
-      if (!a || !b) continue;
       const rgbA = await sampleRGB(imgBuf, a.box);
       const rgbB = await sampleRGB(imgBuf, b.box);
       const selA = rgbInRange(rgbA, theme.selected);
@@ -91,7 +83,16 @@ async function detectHighlighted(words, imgBuf) {
   return result;
 }
 
-/* ───────── Main handler ───────── */
+function detectBookmaker(words) {
+  for (const theme of buttonThemes) {
+    const hasKeywords = theme.keywords.every(keyword =>
+      words.some(w => new RegExp(`^${keyword}$`, 'i').test(w.text))
+    );
+    if (hasKeywords) return theme.bookmaker;
+  }
+  return 'generic';
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST')
     return res.status(405).json({ message: 'Only POST allowed' });
@@ -106,23 +107,25 @@ export default async function handler(req, res) {
     try {
       const buf = fs.readFileSync(file.filepath);
 
-      /* ── OCR ── */
+      // ── OCR: Google Vision for everything
       const [vis] = await visionClient.textDetection(buf);
-      const anns  = vis.textAnnotations || [];
-      const raw   = anns[0]?.description?.trim() || '';
+      const anns = vis.textAnnotations || [];
+      const raw = anns[0]?.description?.trim() || '';
       if (!raw) return res.status(200).json({ rawText:'', structuredBets: [] });
 
-      /* Words w/ boxes for color logic */
       const words = anns.slice(1).map(a => ({ text:a.description, box:makeBox(a.boundingPoly.vertices) }));
-      const colorMap = await detectHighlighted(words, buf);
+      const bookmaker = detectBookmaker(words);
+      const colorMap = ['prizepicks','underdog'].includes(bookmaker)
+        ? await detectHighlighted(words, buf)
+        : {};
 
-      /* Only top half for GPT */
-      const top   = raw.split('\n').slice(0, Math.ceil(raw.split('\n').length/2)).join('\n')
-                        .replace(/3PTS/gi,'3PT made').replace(/PTS/gi,'points')
-                        .replace(/REB/gi,'rebounds').replace(/AST/gi,'assists')
-                        .replace(/PRA/gi,'points + rebounds + assists');
+      // ── Clean up top half of slip for GPT
+      const top = raw.split('\n').slice(0, Math.ceil(raw.split('\n').length/2)).join('\n')
+        .replace(/3PTS/gi,'3PT made').replace(/PTS/gi,'points')
+        .replace(/REB/gi,'rebounds').replace(/AST/gi,'assists')
+        .replace(/PRA/gi,'points + rebounds + assists');
 
-      /* ── GPT extraction ── */
+      // ── GPT extraction
       const gptPrompt = `
 Extract player prop bets from this text (top half of slip):
 
@@ -144,35 +147,32 @@ Rules:
         ]
       });
       let json = gpt.choices[0].message.content.trim()
-                 .replace(/^```json/i,'').replace(/```$/,'').trim();
+        .replace(/^```json/i,'').replace(/```$/,'').trim();
       let bets; try { bets = JSON.parse(json); } catch { bets=[]; }
 
-      /* ── Normalize + color override ── */
       const final = bets.map(leg => {
         const txtType = leg.type?.toLowerCase();
-        let type = txtType==='more'||txtType==='higher'||txtType==='over' ? 'over'
-                 :txtType==='less'||txtType==='lower'||txtType==='under' ? 'under'
+        let type = ['more','higher','over'].includes(txtType) ? 'over'
+                 : ['less','lower','under'].includes(txtType) ? 'under'
                  : txtType;
-
-        /* find word row with this line to map Y → override */
         const lineRegex = new RegExp(`${leg.line}`.replace('.','\\.'),'i');
         const row = words.find(w => lineRegex.test(w.text));
         if (row && colorMap[row.box.y]) type = colorMap[row.box.y];
 
         return {
-          player : normalizeName(leg.player),
-          prop   : leg.prop.toLowerCase().trim(),
-          line   : parseFloat(leg.line),
+          player: normalizeName(leg.player),
+          prop: leg.prop.toLowerCase().trim(),
+          line: parseFloat(leg.line),
           type,
         };
       });
 
-      console.log('📦 Final bets', final);
-      return res.status(200).json({ rawText:raw, structuredBets:final });
+      console.log(`📦 Final bets from ${bookmaker}`, final);
+      return res.status(200).json({ rawText: raw, structuredBets: final });
 
     } catch (e) {
       console.error('upload‑bet error', e);
-      return res.status(500).json({ message:'Server error', error:e.message });
+      return res.status(500).json({ message:'Server error', error: e.message });
     }
   });
 }
