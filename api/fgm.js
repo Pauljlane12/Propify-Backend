@@ -9,19 +9,23 @@ const supabase = createClient(
 export default async function fgmHandler(req, res) {
   console.log("🔥 /api/fgm was hit:", req.body);
 
+  // ── Allow only POST
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Only POST requests allowed" });
   }
 
-  const { player, line } = req.body;
+  // ── Body params (NOW INCLUDES direction)
+  const { player, line, direction } = req.body;            // ← added direction
   if (!player || typeof line !== "number") {
-    return res.status(400).json({ error: "Missing or invalid player or line" });
+    return res
+      .status(400)
+      .json({ error: "Missing or invalid player or line" });
   }
 
-  // Split first & last name
+  // ── Split first / last name
   const [firstName, ...lastParts] = player.trim().split(" ");
   const lastName = lastParts.join(" ");
-  const statType = "fgm";
+  const statType = "fgm"; // field‑goals made
 
   try {
     // 🔍 Identify Player
@@ -53,20 +57,24 @@ export default async function fgmHandler(req, res) {
         ? nextGame?.visitor_team_id
         : nextGame?.home_team_id;
 
-    // 🚀 Get All Insights
+    // 🚀 Build All Insights (direction forwarded)
     const insights = await getInsightsForStat({
       playerId: player_id,
       statType,
       statColumns: ["fgm"],
       line,
+      direction,              // ← pass the flag
       teamId: team_id,
       opponentTeamId,
       supabase,
     });
 
-    console.log("🚀 Final insights payload:", JSON.stringify(insights, null, 2));
+    console.log(
+      "🚀 Final fgm insights payload:",
+      JSON.stringify(insights, null, 2)
+    );
 
-    return res.status(200).json({ player, line, insights });
+    return res.status(200).json({ player, line, direction, insights });
   } catch (err) {
     console.error("❌ Unhandled error in /api/fgm:", err);
     return res.status(500).json({ error: "Internal server error" });
