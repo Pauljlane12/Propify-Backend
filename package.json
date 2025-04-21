@@ -1,6 +1,7 @@
 {
   "name": "propify-backend",
   "version": "1.0.0",
+  "description": "",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -16,13 +17,13 @@
     "url": "https://github.com/Pauljlane12/Propify-Backend/issues"
   },
   "homepage": "https://github.com/Pauljlane12/Propify-Backend#readme",
-  "description": "",
   "dependencies": {
     "@google-cloud/vision": "5.1.0",
     "@supabase/supabase-js": "^2.49.4",
     "form-data": "^4.0.2",
     "formidable": "^3.5.2",
     "openai": "^4.91.1",
-    "pg": "^8.14.1"
+    "pg": "^8.14.1",
+    "sharp": "^0.33.2"               // ← new dependency
   }
 }
