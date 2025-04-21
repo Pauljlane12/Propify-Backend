@@ -32,7 +32,6 @@ const buttonThemes = [
     keywords: ['Higher', 'Lower'],
     selected: { r:[  0, 80], g:[180,255], b:[200,255] },
   },
-  // ➕ You can expand with more books if needed
 ];
 
 const normalizeName = (t) =>
@@ -107,7 +106,7 @@ export default async function handler(req, res) {
     try {
       const buf = fs.readFileSync(file.filepath);
 
-      // ── OCR: Google Vision for everything
+      // ── OCR: Google Vision for all slips
       const [vis] = await visionClient.textDetection(buf);
       const anns = vis.textAnnotations || [];
       const raw = anns[0]?.description?.trim() || '';
@@ -119,37 +118,61 @@ export default async function handler(req, res) {
         ? await detectHighlighted(words, buf)
         : {};
 
-      // ── Clean up top half of slip for GPT
+      // ── Normalize slip text for GPT input
       const top = raw.split('\n').slice(0, Math.ceil(raw.split('\n').length/2)).join('\n')
-        .replace(/3PTS/gi,'3PT made').replace(/PTS/gi,'points')
-        .replace(/REB/gi,'rebounds').replace(/AST/gi,'assists')
-        .replace(/PRA/gi,'points + rebounds + assists');
+        .replace(/3PTS/gi,'3PT made')
+        .replace(/PTS/gi,'points')
+        .replace(/REB/gi,'rebounds')
+        .replace(/AST/gi,'assists')
+        .replace(/PRA/gi,'points + rebounds + assists')
+        .replace(/Pts\+Rebs\+Asts/gi, 'points + rebounds + assists');
 
-      // ── GPT extraction
+      // ── GPT prompt to extract props
       const gptPrompt = `
-Extract player prop bets from this text (top half of slip):
+You're given OCR text from the top half of a sports betting slip. Extract player prop bets into JSON.
 
 ---
 ${top}
 ---
 
-Return pure JSON: [{"player":"LeBron James","prop":"points","line":26.5,"type":"over"}]
-Rules:
-- "More/Higher/Over" → over, "Less/Lower/Under" → under.
-- Include props only if all fields clear.
-- If none, return [].
-      `;
+Extraction rules:
+- "More", "Higher", "Over" = "over"
+- "Less", "Lower", "Under" = "under"
+- Convert: "Pts+Rebs+Asts" = "points + rebounds + assists"
+- Valid output must include:
+  • player name
+  • prop (e.g. "points")
+  • line (e.g. 16.5)
+  • type ("over" or "under")
+
+Respond with only valid JSON:
+[
+  {
+    "player": "Aaron Nesmith",
+    "prop": "points + rebounds + assists",
+    "line": 16.5,
+    "type": "over"
+  }
+]
+If none found, return [].
+`;
+
       const gpt = await openai.chat.completions.create({
         model:'gpt-4o', temperature:0, max_tokens:400,
         messages:[
-          {role:'system',content:'Extract player props as JSON only.'},
+          {role:'system',content:'Extract player props from sports slips. JSON only.'},
           {role:'user',  content:gptPrompt}
         ]
       });
+
       let json = gpt.choices[0].message.content.trim()
         .replace(/^```json/i,'').replace(/```$/,'').trim();
-      let bets; try { bets = JSON.parse(json); } catch { bets=[]; }
 
+      console.log('🧠 GPT raw output:', json);
+
+      let bets; try { bets = JSON.parse(json); } catch { bets = []; }
+
+      // ── Normalize + override type using color detection
       const final = bets.map(leg => {
         const txtType = leg.type?.toLowerCase();
         let type = ['more','higher','over'].includes(txtType) ? 'over'
@@ -167,7 +190,7 @@ Rules:
         };
       });
 
-      console.log(`📦 Final bets from ${bookmaker}`, final);
+      console.log(`📦 Final bets from ${bookmaker}:`, final);
       return res.status(200).json({ rawText: raw, structuredBets: final });
 
     } catch (e) {
