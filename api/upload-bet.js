@@ -92,6 +92,14 @@ function detectBookmaker(words) {
   return 'generic';
 }
 
+function fuzzyColorMapMatch(colorMap, y) {
+  // Try to match box.y within ±5px (OCR is not perfectly aligned)
+  for (const key of Object.keys(colorMap)) {
+    if (Math.abs(parseInt(key) - y) <= 5) return colorMap[key];
+  }
+  return null;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST')
     return res.status(405).json({ message: 'Only POST allowed' });
@@ -106,28 +114,33 @@ export default async function handler(req, res) {
     try {
       const buf = fs.readFileSync(file.filepath);
 
-      // ── OCR: Google Vision for all slips
+      // ── OCR: Google Vision
       const [vis] = await visionClient.textDetection(buf);
       const anns = vis.textAnnotations || [];
       const raw = anns[0]?.description?.trim() || '';
-      if (!raw) return res.status(200).json({ rawText:'', structuredBets: [] });
+      if (!raw) return res.status(200).json({ rawText: '', structuredBets: [] });
 
-      const words = anns.slice(1).map(a => ({ text:a.description, box:makeBox(a.boundingPoly.vertices) }));
+      const words = anns.slice(1).map(a => ({
+        text: a.description,
+        box: makeBox(a.boundingPoly.vertices),
+      }));
+
       const bookmaker = detectBookmaker(words);
-      const colorMap = ['prizepicks','underdog'].includes(bookmaker)
+      console.log(`📩 Detected bookmaker: ${bookmaker}`);
+
+      const colorMap = ['prizepicks', 'underdog'].includes(bookmaker)
         ? await detectHighlighted(words, buf)
         : {};
 
-      // ── Normalize slip text for GPT input
-      const top = raw.split('\n').slice(0, Math.ceil(raw.split('\n').length/2)).join('\n')
-        .replace(/3PTS/gi,'3PT made')
-        .replace(/PTS/gi,'points')
-        .replace(/REB/gi,'rebounds')
-        .replace(/AST/gi,'assists')
-        .replace(/PRA/gi,'points + rebounds + assists')
+      // ── Normalize for GPT
+      const top = raw.split('\n').slice(0, Math.ceil(raw.split('\n').length / 2)).join('\n')
+        .replace(/3PTS/gi, '3PT made')
+        .replace(/PTS/gi, 'points')
+        .replace(/REB/gi, 'rebounds')
+        .replace(/AST/gi, 'assists')
+        .replace(/PRA/gi, 'points + rebounds + assists')
         .replace(/Pts\+Rebs\+Asts/gi, 'points + rebounds + assists');
 
-      // ── GPT prompt to extract props
       const gptPrompt = `
 You're given OCR text from the top half of a sports betting slip. Extract player prop bets into JSON.
 
@@ -145,42 +158,48 @@ Extraction rules:
   • line (e.g. 16.5)
   • type ("over" or "under")
 
-Respond with only valid JSON:
-[
-  {
-    "player": "Aaron Nesmith",
-    "prop": "points + rebounds + assists",
-    "line": 16.5,
-    "type": "over"
-  }
-]
-If none found, return [].
-`;
+Respond with only valid JSON. If none found, return [].
+      `;
 
       const gpt = await openai.chat.completions.create({
-        model:'gpt-4o', temperature:0, max_tokens:400,
-        messages:[
-          {role:'system',content:'Extract player props from sports slips. JSON only.'},
-          {role:'user',  content:gptPrompt}
-        ]
+        model: 'gpt-4o',
+        temperature: 0,
+        max_tokens: 400,
+        messages: [
+          { role: 'system', content: 'Extract player props from sports slips. JSON only.' },
+          { role: 'user', content: gptPrompt },
+        ],
       });
 
       let json = gpt.choices[0].message.content.trim()
-        .replace(/^```json/i,'').replace(/```$/,'').trim();
+        .replace(/^```json/i, '').replace(/```$/i, '').trim();
 
       console.log('🧠 GPT raw output:', json);
 
-      let bets; try { bets = JSON.parse(json); } catch { bets = []; }
+      let bets;
+      try {
+        bets = JSON.parse(json);
+      } catch {
+        console.warn('⚠️ Failed to parse GPT JSON. Defaulting to empty array.');
+        bets = [];
+      }
 
-      // ── Normalize + override type using color detection
-      const final = bets.map(leg => {
+      const final = bets.map((leg) => {
         const txtType = leg.type?.toLowerCase();
-        let type = ['more','higher','over'].includes(txtType) ? 'over'
-                 : ['less','lower','under'].includes(txtType) ? 'under'
-                 : txtType;
-        const lineRegex = new RegExp(`${leg.line}`.replace('.','\\.'),'i');
+        let type = ['more', 'higher', 'over'].includes(txtType)
+          ? 'over'
+          : ['less', 'lower', 'under'].includes(txtType)
+          ? 'under'
+          : txtType;
+
+        const lineRegex = new RegExp(`${leg.line}`.replace('.', '\\.'), 'i');
         const row = words.find(w => lineRegex.test(w.text));
-        if (row && colorMap[row.box.y]) type = colorMap[row.box.y];
+        const fuzzyOverride = row ? fuzzyColorMapMatch(colorMap, row.box.y) : null;
+
+        if (fuzzyOverride) {
+          console.log(`🎨 Color override applied at y=${row.box.y}: ${fuzzyOverride}`);
+          type = fuzzyOverride;
+        }
 
         return {
           player: normalizeName(leg.player),
@@ -195,7 +214,7 @@ If none found, return [].
 
     } catch (e) {
       console.error('upload‑bet error', e);
-      return res.status(500).json({ message:'Server error', error: e.message });
+      return res.status(500).json({ message: 'Server error', error: e.message });
     }
   });
 }
