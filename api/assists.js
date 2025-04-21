@@ -9,25 +9,31 @@ const supabase = createClient(
 export default async function assistsHandler(req, res) {
   console.log("🔥 /api/assists was hit:", req.body);
 
+  // ── Allow only POST
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Only POST requests allowed" });
   }
 
-  let { player, line } = req.body;
+  // ── Grab body params (NOW INCLUDES direction)
+  let { player, line, direction } = req.body;           // ← added direction
   if (!player || typeof line !== "number") {
-    return res.status(400).json({ error: "Missing or invalid player or line" });
+    return res
+      .status(400)
+      .json({ error: "Missing or invalid player or line" });
   }
 
+  // ── Split player name
   const [firstName, ...lastParts] = player.trim().split(" ");
-  const lastName = lastParts.join(" ");
-  const statType = "ast"; // ✅ Set to assists
+  const lastName  = lastParts.join(" ");
+  const statType  = "ast"; // assists
 
   try {
+    // ── Find player & team
     const { data: playerRow } = await supabase
       .from("players")
       .select("player_id, team_id")
       .ilike("first_name", `%${firstName}%`)
-      .ilike("last_name", `%${lastName}%`)
+      .ilike("last_name",  `%${lastName}%`)
       .maybeSingle();
 
     if (!playerRow) {
@@ -36,6 +42,7 @@ export default async function assistsHandler(req, res) {
 
     const { player_id, team_id } = playerRow;
 
+    // ── Next opponent (first upcoming, non‑Final game)
     const { data: upcomingGames } = await supabase
       .from("games")
       .select("id, date, home_team_id, visitor_team_id, status")
@@ -44,24 +51,29 @@ export default async function assistsHandler(req, res) {
       .order("date", { ascending: true })
       .limit(1);
 
-    const nextGame = upcomingGames?.[0];
+    const nextGame       = upcomingGames?.[0];
     const opponentTeamId =
       nextGame?.home_team_id === team_id
         ? nextGame?.visitor_team_id
         : nextGame?.home_team_id;
 
+    // ── Build insights (direction forwarded)
     const insights = await getInsightsForStat({
       playerId: player_id,
       statType,
       line,
+      direction,            // ← pass through raw flag
       teamId: team_id,
       opponentTeamId,
       supabase,
     });
 
-    console.log("🚀 Final assists insights payload:", JSON.stringify(insights, null, 2));
+    console.log(
+      "🚀 Final assists insights payload:",
+      JSON.stringify(insights, null, 2)
+    );
 
-    return res.status(200).json({ player, line, insights });
+    return res.status(200).json({ player, line, direction, insights });
   } catch (err) {
     console.error("❌ Unhandled error in /api/assists:", err);
     return res.status(500).json({ error: "Internal server error" });
