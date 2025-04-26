@@ -1,11 +1,9 @@
 /**
  * insights/index.js
  * Orchestrates the fetching and generation of all relevant insights for a given player and stat type.
- * Collects standardized insight objects from individual insight functions.
- * Minimal changes to accept player name, extract last name, and pass it down for debugging.
+ * Includes minimal changes to accept player name, extract last name, pass it down, and add a debug log.
  */
 import { getLast10GameHitRate } from "./last10Games.js";
-import { getLast10ComboHitRate } from "./getLast10ComboHitRate.js"; // Assuming you have this for combo props
 import { getSeasonVsLast3 } from "./seasonVsLast3.js";
 import { getDefenseVsPosition } from "./defenseVsPosition.js";
 import { getMatchupHistory } from "./matchupHistory.js";
@@ -39,31 +37,31 @@ export async function getInsightsForStat({
     opponentTeamId,
     supabase,
 }) {
-    // Initialize insights object (keeping original structure for now)
+    // Initialize insights object (keeping original structure)
     const insights = {};
 
     // Get the last name using the helper
     const playerLastName = getLastName(playerName);
     console.log(`🔍 getInsightsForStat: Determined playerLastName as "${playerLastName}" from playerName "${playerName}"`); // <<-- ADDED DEBUG LOG
 
-    const statColumns = [statType]; // Keep this as it was
+    // Keep statColumns as it was in your file
+    const statColumns = [statType];
 
-    // ✅ Hit Rate - now direction-aware and passing last name
+    // ✅ Hit Rate - passing last name
     // Assuming getLast10GameHitRate is updated to accept playerLastName
     insights.insight_1_hit_rate = await getLast10GameHitRate({
         playerId,
         playerLastName, // <<-- PASSING: Pass the determined last name
         statType,
-        statColumns, // Note: getLast10GameHitRate might not use statColumns directly, but keeping for consistency if needed
+        statColumns, // Pass statColumns (even if getLast10GameHitRate doesn't use it)
         line,
         direction,
         supabase,
     });
 
-    // --- Other insights (only passing playerLastName if the function is updated to accept it) ---
-    // For now, we'll only pass it to the Last 10 scripts as they are updated.
-    // You will need to update these functions individually later to accept playerLastName
-    // and use it in their context strings if desired.
+    // --- Other insights (keeping original calls) ---
+    // These calls remain unchanged for now. You will update them later
+    // to accept playerLastName and return standardized objects.
 
     insights.insight_2_season_vs_last3 = await getSeasonVsLast3({
         playerId,
@@ -126,27 +124,6 @@ export async function getInsightsForStat({
         });
     }
 
-    // Note: If you have getLast10ComboHitRate, you'd pass playerLastName there too:
-    // if (statColumns && statColumns.length > 1) {
-    //      insights.insight_1_hit_rate = await getLast10ComboHitRate({
-    //          playerId,
-    //          playerLastName, // Pass last name
-    //          statColumns,
-    //          line,
-    //          direction,
-    //          supabase,
-    //      });
-    // } else {
-    //      insights.insight_1_hit_rate = await getLast10GameHitRate({
-    //          playerId,
-    //          playerLastName, // Pass last name
-    //          statType,
-    //          line,
-    //          direction,
-    //          supabase,
-    //      });
-    // }
-
-
-    return insights; // Return the insights object
+    // Return the insights object (keeping original structure)
+    return insights;
 }
