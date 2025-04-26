@@ -1,9 +1,13 @@
 /**
  * insights/index.js
  * Orchestrates the fetching and generation of all relevant insights for a given player and stat type.
- * Includes minimal changes to accept player name, extract last name, pass it down, and add a debug log.
+ * Includes minimal changes to accept player name, extract capitalized last name, pass it down, and add a debug log.
  */
 import { getLast10GameHitRate } from "./last10Games.js";
+// Assuming you have a separate orchestrator and individual files for combo stats,
+// so we won't call combo insight functions directly from this single-stat orchestrator.
+// import { getLast10ComboHitRate } from "./getLast10ComboHitRate.js"; // Removed import for combo insights
+
 import { getSeasonVsLast3 } from "./seasonVsLast3.js";
 import { getDefenseVsPosition } from "./defenseVsPosition.js";
 import { getMatchupHistory } from "./matchupHistory.js";
@@ -15,21 +19,23 @@ import { getRestDayPerformance } from "./restDayPerformance.js";
 import { getFgaTrendLast3 } from "./fgaTrendLast3.js"; // ✅ New import
 
 /**
- * Helper to get the last name from a full name string.
+ * Helper to get the last name from a full name string and capitalize its first letter.
  * Defaults to "Player" if the input name is falsy or has only one part.
  * @param {string} name - The full player name.
- * @returns {string} - The player's last name or "Player".
+ * @returns {string} - The player's last name with the first letter capitalized, or "Player".
  */
 const getLastName = (name) => {
     if (!name) return "Player"; // Default if name is missing
     const parts = name.trim().split(" ");
-    return parts.length > 1 ? parts[parts.length - 1] : name; // Use last part if multiple, otherwise use the name itself
+    const lastName = parts.length > 1 ? parts[parts.length - 1] : name; // Get the last part or the name itself
+    // Capitalize the first letter and add the rest of the string
+    return lastName.charAt(0).toUpperCase() + lastName.slice(1);
 };
 
 
 export async function getInsightsForStat({
     playerId,
-    playerName, // <<-- ADDED: Accept player name from API endpoint
+    playerName, // Accept player name from API endpoint
     statType,
     line,
     direction,
@@ -40,18 +46,19 @@ export async function getInsightsForStat({
     // Initialize insights object (keeping original structure)
     const insights = {};
 
-    // Get the last name using the helper
+    // Get the capitalized last name using the helper
     const playerLastName = getLastName(playerName);
-    console.log(`🔍 getInsightsForStat: Determined playerLastName as "${playerLastName}" from playerName "${playerName}"`); // <<-- ADDED DEBUG LOG
+    console.log(`🔍 getInsightsForStat: Determined playerLastName as "${playerLastName}" from playerName "${playerName}"`); // DEBUG LOG
+
 
     // Keep statColumns as it was in your file
     const statColumns = [statType];
 
-    // ✅ Hit Rate - passing last name
+    // ✅ Hit Rate - passing capitalized last name
     // Assuming getLast10GameHitRate is updated to accept playerLastName
     insights.insight_1_hit_rate = await getLast10GameHitRate({
         playerId,
-        playerLastName, // <<-- PASSING: Pass the determined last name
+        playerLastName, // Pass the determined capitalized last name
         statType,
         statColumns, // Pass statColumns (even if getLast10GameHitRate doesn't use it)
         line,
@@ -62,6 +69,7 @@ export async function getInsightsForStat({
     // --- Other insights (keeping original calls) ---
     // These calls remain unchanged for now. You will update them later
     // to accept playerLastName and return standardized objects.
+    // Remember to pass playerLastName to them if they need it for context strings.
 
     insights.insight_2_season_vs_last3 = await getSeasonVsLast3({
         playerId,
