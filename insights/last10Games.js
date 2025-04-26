@@ -1,6 +1,7 @@
 /**
  * insights/last10Games.js
  * Calculates the hit rate for a single stat type over the player's last 10 valid games.
+ * Valid games now require at least 1 minute played.
  * Includes fallback to the previous season if not enough games in the current season.
  * Returns standardized insight object.
  */
@@ -20,12 +21,16 @@ export async function getLast10GameHitRate({
     const lineVal = parseFloat(line);
     const dir = normalizeDirection(direction); // Canonical direction: "over" | "under"
 
+    // --- Configuration ---
+    const requiredGames = 10; // Number of recent games to consider
+    const gamesToFetch = 20; // Fetch more than needed in case some get filtered out
+    const minMinutes = 1; // Minimum minutes played for a game to be considered valid
+
     // --- Determine season to use (Current with fallback) ---
     let seasonToUse;
     let gamesData = [];
     let validGames = [];
-    const requiredGames = 10;
-    const gamesToFetch = 20; // Fetch more than needed in case of filters
+
 
     try {
         const currentSeason = await getMostRecentSeason(supabase);
@@ -47,8 +52,8 @@ export async function getLast10GameHitRate({
         } else {
             const currentValid = (currentSeasonData || []).filter((g) => {
                 const minutes = parseInt(g.min, 10);
-                // Ensure minutes is a number and >= 10, and the stat value exists
-                return !isNaN(minutes) && minutes >= 10 && g[statType] != null;
+                // Ensure minutes is a number and >= minMinutes, and the stat value exists
+                return !isNaN(minutes) && minutes >= minMinutes && g[statType] != null;
             });
 
             if (currentValid.length >= requiredGames) {
@@ -77,7 +82,7 @@ export async function getLast10GameHitRate({
                 } else {
                     const previousValid = (previousSeasonData || []).filter((g) => {
                         const minutes = parseInt(g.min, 10);
-                        return !isNaN(minutes) && minutes >= 10 && g[statType] != null;
+                        return !isNaN(minutes) && minutes >= minMinutes && g[statType] != null;
                     });
                      console.log(`Found ${previousValid.length} valid games in previous season ${previousSeason}.`);
 
@@ -93,15 +98,15 @@ export async function getLast10GameHitRate({
         const lastXGames = validGames.slice(0, requiredGames); // Get the required number of games
 
         if (lastXGames.length === 0) {
-             console.warn(`⚠️ No valid games found for ${statType} for player ${playerId} in season ${seasonToUse}.`);
+             console.warn(`⚠️ No valid games found for ${statType} for player ${playerId} in season ${seasonToUse} with >= ${minMinutes} minutes.`);
             // Return an insight object indicating no data
             return {
                 id: insightId,
                 title: insightTitle,
                 value: "N/A",
-                context: `No valid games found for ${statType} in the ${seasonToUse} season.`,
+                context: `No valid games found for ${statType} in the ${seasonToUse} season with at least ${minMinutes} minute played.`,
                 status: "info",
-                details: { totalGames: 0, seasonUsed: seasonToUse },
+                details: { totalGames: 0, seasonUsed: seasonToUse, minMinutesFilter: minMinutes },
                 error: "No valid games found",
             };
         }
@@ -124,19 +129,19 @@ export async function getLast10GameHitRate({
 
 
         // --- Construct context string ---
-        let context = `In their last ${lastXGames.length} games from the ${seasonToUse} season, this player has gone ${dir.toUpperCase()} ${lineVal} ${hitCount} times.`;
+        let context = `In their last ${lastXGames.length} games from the ${seasonToUse} season (min ${minMinutes} min), this player has gone ${dir.toUpperCase()} ${lineVal} ${hitCount} times.`;
         if (seasonToUse !== (await getMostRecentSeason(supabase))) {
              context += ` (Using data from the ${seasonToUse} season due to insufficient games in the current season.)`;
         }
          if (validGames.length < requiredGames && validGames.length > 0) {
-              context += ` Note: Only ${validGames.length} valid games were available in the ${seasonToUse} season.`;
+              context += ` Note: Only ${validGames.length} valid games were available in the ${seasonToUse} season with at least ${minMinutes} minute played.`;
          } else if (validGames.length === 0) {
-              context = `No valid games found for ${statType} for player ${playerId} in season ${seasonToUse}.`; // Override context if no games found
+              context = `No valid games found for ${statType} for player ${playerId} in season ${seasonToUse} with at least ${minMinutes} minute played.`; // Override context if no games found
          }
 
 
         // --- Debug logging ---
-        console.log(`✅ ${insightTitle} Result: Hit Rate = ${hitRate}, Games = ${lastXGames.length}, Season = ${seasonToUse}`);
+        console.log(`✅ ${insightTitle} Result: Hit Rate = ${hitRate}, Games = ${lastXGames.length}, Season = ${seasonToUse}, Min Minutes Filter = ${minMinutes}`);
         console.table(
             lastXGames.map((g) => ({
                 game_date: g.game_date,
@@ -162,6 +167,7 @@ export async function getLast10GameHitRate({
                 line: lineVal,
                 direction: dir,
                 statType: statType,
+                minMinutesFilter: minMinutes, // Include filter value in details
             },
         };
 
