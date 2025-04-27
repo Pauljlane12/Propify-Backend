@@ -1,9 +1,8 @@
 /**
- * utils/fetchLastValidGames.js
- * Fetches the last N games in which a player logged at least 1 minute,
- * using a single DB‐level filter and limit for maximum efficiency.
+ * insights/NBAgraphs.js
+ * Provides a single‐query helper to fetch a player’s last N valid games,
+ * and exports it under both names so your orchestrator doesn’t break.
  */
-
 import { createClient } from "@supabase/supabase-js";
 import { normalizeDirection } from "../utils/normalizeDirection.js";
 
@@ -16,14 +15,6 @@ const supabase = createClient(
 /**
  * Fetches the last `requiredGames` games where the player logged ≥1 minute
  * and the specified stat is not null, ordered most recent first.
- * @param {Object} params
- * @param {number} params.playerId        - ID of the player
- * @param {string} params.statType        - Stat field, e.g. "pts", "reb", "ast"
- * @param {number|string} params.line     - Betting line to compare against
- * @param {string} params.direction       - "over" or "under"
- * @param {number} [params.requiredGames=15] - Number of valid games to fetch
- * @returns {Promise<Object[]>} Array of games:
- *   [{ gameId, gameDate, minutes, statValue, result }, …]
  */
 export async function fetchLastValidGames({
   playerId,
@@ -35,30 +26,26 @@ export async function fetchLastValidGames({
   const lineVal = parseFloat(line);
   const dir = normalizeDirection(direction);
 
-  // Single query: filter out zero-minute and null-stat rows, then limit
   const { data, error } = await supabase
     .from("player_stats")
     .select(`game_id, game_date, min, ${statType}`)
     .eq("player_id", playerId)
-    .neq("min", "00")               // only games with actual minutes played
-    .not(`${statType}`, "is", null) // only games where the stat exists
+    .neq("min", "00")              // only games with real minutes
+    .not(`${statType}`, "is", null)// only games where the stat exists
     .order("game_date", { ascending: false })
     .limit(requiredGames);
 
   if (error) {
-    console.error("❌ Supabase error fetching last valid games:", error.message);
+    console.error("❌ Supabase error in fetchLastValidGames:", error.message);
     throw error;
   }
 
-  // Map and annotate result
   return (data || []).map((g) => {
-    const minutes = parseInt(g.min, 10);
+    const minutes  = parseInt(g.min, 10);
     const statValue = g[statType];
-
-    const result =
-      dir === "under"
-        ? statValue < lineVal ? "Hit" : "Miss"
-        : statValue >= lineVal ? "Hit" : "Miss";
+    const result = dir === "under"
+      ? (statValue < lineVal ? "Hit" : "Miss")
+      : (statValue >= lineVal ? "Hit" : "Miss");
 
     return {
       gameId:    g.game_id,
@@ -70,14 +57,7 @@ export async function fetchLastValidGames({
   });
 }
 
-// Example usage:
-// (async () => {
-//   const games = await fetchLastValidGames({
-//     playerId: 2544,       // LeBron James
-//     statType: "pts",
-//     line:     25.5,
-//     direction: "over",
-//     requiredGames: 15
-//   });
-//   console.table(games);
-// })();
+// ─────────────────────────────────────────────────────────────────
+// Alias for backwards‐compatibility: anything still importing
+// getRecentGamePerformance will now get fetchLastValidGames
+export const getRecentGamePerformance = fetchLastValidGames;
