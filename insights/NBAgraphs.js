@@ -1,21 +1,16 @@
 /**
  * insights/NBAgraphs.js
- * Provides a single‐query helper to fetch a player’s last N valid games,
- * and exports it under both names so your orchestrator doesn’t break.
+ * Fetches the last N valid games and always returns either
+ * an array of games or an { error } object.
  */
 import { createClient } from "@supabase/supabase-js";
 import { normalizeDirection } from "../utils/normalizeDirection.js";
 
-// Initialize Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-/**
- * Fetches the last `requiredGames` games where the player logged ≥1 minute
- * and the specified stat is not null, ordered most recent first.
- */
 export async function fetchLastValidGames({
   playerId,
   statType,
@@ -23,41 +18,47 @@ export async function fetchLastValidGames({
   direction = "over",
   requiredGames = 15,
 }) {
-  const lineVal = parseFloat(line);
-  const dir = normalizeDirection(direction);
+  try {
+    const lineVal = parseFloat(line);
+    const dir     = normalizeDirection(direction);
 
-  const { data, error } = await supabase
-    .from("player_stats")
-    .select(`game_id, game_date, min, ${statType}`)
-    .eq("player_id", playerId)
-    .neq("min", "00")              // only games with real minutes
-    .not(`${statType}`, "is", null)// only games where the stat exists
-    .order("game_date", { ascending: false })
-    .limit(requiredGames);
+    // DB‐level filtering + limit
+    const { data, error } = await supabase
+      .from("player_stats")
+      .select(`game_id, game_date, min, ${statType}`)
+      .eq("player_id", playerId)
+      .neq("min", "00")
+      .not(`${statType}`, "is", null)
+      .order("game_date", { ascending: false })
+      .limit(requiredGames);
 
-  if (error) {
-    console.error("❌ Supabase error in fetchLastValidGames:", error.message);
-    throw error;
+    if (error) {
+      console.error("❌ Supabase error in fetchLastValidGames:", error.message);
+      return { error: error.message };
+    }
+
+    const games = (data || []).map((g) => {
+      const minutes  = parseInt(g.min, 10);
+      const statValue = g[statType];
+      const result = dir === "under"
+        ? (statValue < lineVal ? "Hit" : "Miss")
+        : (statValue >= lineVal ? "Hit" : "Miss");
+
+      return {
+        gameId:    g.game_id,
+        gameDate:  g.game_date,
+        minutes,
+        statValue,
+        result,
+      };
+    });
+
+    return { games };
+  } catch (e) {
+    console.error("💥 Unhandled error in fetchLastValidGames:", e);
+    return { error: e.message };
   }
-
-  return (data || []).map((g) => {
-    const minutes  = parseInt(g.min, 10);
-    const statValue = g[statType];
-    const result = dir === "under"
-      ? (statValue < lineVal ? "Hit" : "Miss")
-      : (statValue >= lineVal ? "Hit" : "Miss");
-
-    return {
-      gameId:    g.game_id,
-      gameDate:  g.game_date,
-      minutes,
-      statValue,
-      result,
-    };
-  });
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Alias for backwards‐compatibility: anything still importing
-// getRecentGamePerformance will now get fetchLastValidGames
+// Alias so existing imports still work
 export const getRecentGamePerformance = fetchLastValidGames;
