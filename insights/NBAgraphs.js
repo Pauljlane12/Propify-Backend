@@ -11,15 +11,6 @@ import { normalizeDirection } from "../utils/normalizeDirection.js";
 
 /**
  * Fetches and formats data for recent game performance charts.
- * @param {Object} params - Parameters for data fetching.
- * @param {number} params.playerId - The ID of the player.
- * @param {string} params.statType - The type of statistic (e.g., "pts", "reb", "ast", "blk").
- * @param {number} params.line - The betting line for the prop.
- * @param {string} params.direction - The bet direction ("over" or "under").
- * @param {Object} params.supabase - The Supabase client instance.
- * @param {number[]} [params.gameRanges = [5, 10, 15]] - Array of game counts to provide data for.
- * @returns {Promise<Object>} - A promise that resolves to a standardized insight object
- * containing game data arrays for each requested range in its details.
  */
 export async function getRecentGamePerformance({
     playerId,
@@ -27,21 +18,18 @@ export async function getRecentGamePerformance({
     line,
     direction = "over",
     supabase,
-    gameRanges = [5, 10, 15], // Default ranges for the charts
+    gameRanges = [5, 10, 15],
 }) {
     const insightId = "recent_game_performance_charts";
     const insightTitle = "Recent Game Performance";
     const lineVal = parseFloat(line);
-    const dir = normalizeDirection(direction); // Canonical direction: "over" | "under"
+    const dir = normalizeDirection(direction);
 
-    // --- Configuration ---
-    // Fetch enough games to cover the largest requested range, plus a buffer
     const maxGamesToFetch = Math.max(...gameRanges) + 5;
-    const minMinutes = 1; // Minimum minutes played for a game to be considered valid
+    const minMinutes = 1;
 
-    // --- Determine season to use (Current with fallback) ---
     let seasonToUse;
-    let allValidGames = []; // Array to hold valid games from the chosen season
+    let allValidGames = [];
     let usedFallback = false;
 
     console.log(`📊 ${insightTitle} (Player ${playerId}, Stat ${statType}, Line ${lineVal}, Dir ${dir})`);
@@ -50,71 +38,65 @@ export async function getRecentGamePerformance({
         const currentSeason = await getMostRecentSeason(supabase);
         console.log(`Attempting to fetch from current season: ${currentSeason}`);
 
-        // 1. Attempt to fetch from the current season
+        // 1. Fetch current season data
         const { data: currentSeasonData, error: currentSeasonError } = await supabase
             .from("player_stats")
-            .select(`game_id, game_date, game_season, min, ${statType}`) // Select necessary columns
+            .select(`game_id, game_date, game_season, min, ${statType}`)
             .eq("player_id", playerId)
             .eq("game_season", currentSeason)
             .order("game_date", { ascending: false })
-            .limit(maxGamesToFetch); // Fetch enough games for the largest range
+            .limit(maxGamesToFetch);
 
+        console.log("🔍 currentSeasonData:", currentSeasonData);
         if (currentSeasonError) {
-            console.error(`❌ Supabase error fetching current season stats for ${insightTitle}:`, currentSeasonError.message);
-            // Don't return immediately, try fallback
-        } else {
-            const currentValid = (currentSeasonData || []).filter((g) => {
-                const minutes = parseInt(g.min, 10);
-                 // Ensure minutes is a number and >= minMinutes, and the stat value exists
-                return !isNaN(minutes) && minutes >= minMinutes && g[statType] != null;
-            });
+            console.error(`❌ Supabase error fetching current season stats:`, currentSeasonError.message);
+        }
 
-            if (currentValid.length >= Math.max(...gameRanges)) { // Check if enough games for the largest range
-                console.log(`Found ${currentValid.length} valid games in current season ${currentSeason}. Using this season.`);
+        const currentValid = (currentSeasonData || []).filter((g) => {
+            const minutes = parseInt(g.min, 10);
+            return !isNaN(minutes) && minutes >= minMinutes && g[statType] != null;
+        });
+        console.log(`✅ currentValid (${currentValid.length}):`, currentValid);
+
+        if (currentValid.length >= Math.max(...gameRanges)) {
+            console.log(`Using current season ${currentSeason} with ${currentValid.length} valid games.`);
+            seasonToUse = currentSeason;
+            allValidGames = currentValid;
+        } else {
+            console.log(`Only ${currentValid.length} valid games in ${currentSeason}, falling back.`);
+            // 2. Fetch previous season
+            const previousSeason = currentSeason - 1;
+            const { data: previousSeasonData, error: previousSeasonError } = await supabase
+                .from("player_stats")
+                .select(`game_id, game_date, game_season, min, ${statType}`)
+                .eq("player_id", playerId)
+                .eq("game_season", previousSeason)
+                .order("game_date", { ascending: false })
+                .limit(maxGamesToFetch);
+
+            console.log("🔍 previousSeasonData:", previousSeasonData);
+            if (previousSeasonError) {
+                console.error(`❌ Supabase error fetching previous season stats:`, previousSeasonError.message);
                 seasonToUse = currentSeason;
                 allValidGames = currentValid;
-                usedFallback = false;
             } else {
-                console.log(`Only found ${currentValid.length} valid games in current season ${currentSeason}. Attempting fallback to previous season.`);
-                // 2. If not enough games, attempt to fetch from the previous season
-                const previousSeason = currentSeason - 1;
-                const { data: previousSeasonData, error: previousSeasonError } = await supabase
-                    .from("player_stats")
-                    .select(`game_id, game_date, game_season, min, ${statType}`) // Select necessary columns
-                    .eq("player_id", playerId)
-                    .eq("game_season", previousSeason)
-                    .order("game_date", { ascending: false })
-                    .limit(maxGamesToFetch); // Fetch enough games for the largest range
+                const previousValid = (previousSeasonData || []).filter((g) => {
+                    const minutes = parseInt(g.min, 10);
+                    return !isNaN(minutes) && minutes >= minMinutes && g[statType] != null;
+                });
+                console.log(`✅ previousValid (${previousValid.length}):`, previousValid);
 
-                if (previousSeasonError) {
-                    console.error(`❌ Supabase error fetching previous season stats for ${insightTitle}:`, previousSeasonError.message);
-                    // If both fail, use whatever current data was retrieved
-                    seasonToUse = currentSeason; // Indicate current season attempt failed
-                    allValidGames = currentValid; // Use whatever current valid data was retrieved
-                    usedFallback = false; // Fallback attempt failed or not needed
-                } else {
-                    const previousValid = (previousSeasonData || []).filter((g) => {
-                        const minutes = parseInt(g.min, 10);
-                        return !isNaN(minutes) && minutes >= minMinutes && g[statType] != null;
-                    });
-                     console.log(`Found ${previousValid.length} valid games in previous season ${previousSeason}.`);
-
-                    // Use previous season data, combining with current if necessary to reach maxGamesToFetch (optional, but good for more data)
-                    // For simplicity here, just use the previous season data if fallback is needed
-                    seasonToUse = previousSeason;
-                    allValidGames = previousValid;
-                    usedFallback = true;
-                }
+                seasonToUse = previousSeason;
+                allValidGames = previousValid;
+                usedFallback = true;
             }
         }
 
-        // --- Process data for each requested game range ---
-        const chartData = {};
-        const availableGames = allValidGames.length;
+        console.log("🔀 allValidGames:", allValidGames);
 
+        const availableGames = allValidGames.length;
         if (availableGames === 0) {
-             console.warn(`⚠️ No valid games found for ${statType} for player ${playerId} in season ${seasonToUse} with >= ${minMinutes} minutes.`);
-            // Return an insight object indicating no data
+            console.warn(`⚠️ No valid games found in season ${seasonToUse}.`);
             return {
                 id: insightId,
                 title: insightTitle,
@@ -126,62 +108,61 @@ export async function getRecentGamePerformance({
             };
         }
 
+        // 3. Build chartData for each range
+        const chartData = {};
         for (const numGames of gameRanges) {
-            // Get the last 'numGames' from the available valid games
             const gamesForRange = allValidGames.slice(0, numGames);
+            console.log(`🗂 gamesForRange (last ${numGames}):`, gamesForRange);
 
-            // Format data for the chart for this range
-            chartData[`last${numGames}Games`] = gamesForRange.map(game => {
-                const statValue = game[statType];
-                const result = dir === "under"
-                    ? (statValue < lineVal ? 'Hit' : 'Miss')
-                    : (statValue >= lineVal ? 'Hit' : 'Miss');
+            chartData[`last${numGames}Games`] = gamesForRange
+                .map(game => {
+                    const statValue = game[statType];
+                    const result = dir === "under"
+                        ? (statValue < lineVal ? 'Hit' : 'Miss')
+                        : (statValue >= lineVal ? 'Hit' : 'Miss');
 
-                return {
-                    gameDate: game.game_date,
-                    statValue: statValue,
-                    minutes: parseInt(game.min, 10),
-                    result: result, // 'Hit' or 'Miss'
-                    line: lineVal,
-                    direction: dir,
-                    season: game.game_season,
-                };
-            }).reverse(); // Reverse to show chronologically from left to right on chart
+                    return {
+                        gameDate: game.game_date,
+                        statValue,
+                        minutes: parseInt(game.min, 10),
+                        result,
+                        line: lineVal,
+                        direction: dir,
+                        season: game.game_season,
+                    };
+                })
+                .reverse();
 
-             console.log(`Generated data for last ${numGames} games chart (${gamesForRange.length} games).`);
+            console.log(`Generated chartData.last${numGames}Games:`, chartData[`last${numGames}Games`]);
         }
 
-        // --- Construct context string ---
         let context = `Game-by-game results for recent games (min ${minMinutes} min).`;
-         if (usedFallback) {
-              context += ` (Using data from the ${seasonToUse} season)`;
-         }
-         if (availableGames < Math.min(...gameRanges)) {
-             context = `Only ${availableGames} valid games available for charts (min ${minMinutes} min).`;
-         }
+        if (usedFallback) context += ` (Using ${seasonToUse} season)`;
+        if (availableGames < Math.min(...gameRanges)) {
+            context = `Only ${availableGames} valid games available for charts (min ${minMinutes} min).`;
+        }
 
+        console.log("📦 Final chartData object:", chartData);
 
-        // --- Return standardized insight object ---
         return {
             id: insightId,
             title: insightTitle,
-            value: `${availableGames} games available`, // Value can indicate how many games were found
-            context: context,
-            status: availableGames > 0 ? "info" : "warning", // Status based on data availability
+            value: `${availableGames} games available`,
+            context,
+            status: availableGames > 0 ? "info" : "warning",
             details: {
-                availableGames: availableGames,
+                availableGames,
                 seasonUsed: seasonToUse,
                 minMinutesFilter: minMinutes,
                 line: lineVal,
                 direction: dir,
-                statType: statType,
-                chartData: chartData, // Contains objects like { last5Games: [...], last10Games: [...], ... }
+                statType,
+                chartData,
             },
         };
 
     } catch (e) {
-        console.error(`Fatal error in ${insightTitle} for player ${playerId}, stat ${statType}:`, e);
-        // Return an insight object indicating a fatal error
+        console.error(`💥 Unhandled error in ${insightTitle}:`, e);
         return {
             id: insightId,
             title: insightTitle,
