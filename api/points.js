@@ -111,7 +111,7 @@ export default async function pointsHandler(req, res) {
     // ───────────────────────────────────────────────
     // 👉  Build all insights (direction now forwarded)
     // ───────────────────────────────────────────────
-    const insights = await getInsightsForStat({
+    const insightsArray = await getInsightsForStat({
       playerId: player_id,
       playerName: player,
       statType,
@@ -123,10 +123,18 @@ export default async function pointsHandler(req, res) {
       supabase,
     });
 
-    console.log(
-      "🚀 Final insights payload:",
-      JSON.stringify(insights, null, 2)
-    );
+    // DEBUG: log the raw array
+    console.log("🚀 Raw insights array:", JSON.stringify(insightsArray, null, 2));
+
+    // Convert the array of { id, ... } into an object keyed by id
+    const insights = insightsArray.reduce((map, insight) => {
+      if (insight && insight.id) {
+        map[insight.id] = insight;
+      }
+      return map;
+    }, {});
+
+    console.log("🚀 Transformed insights object:", JSON.stringify(insights, null, 2));
 
     // Return the final payload including player's last name and team abbreviation
     return res.status(200).json({
@@ -134,7 +142,7 @@ export default async function pointsHandler(req, res) {
       line,
       direction,
       player_team_abbreviation: playerTeamAbbreviation,
-      insights,
+      insights, // now an object
     });
   } catch (err) {
     console.error("❌ Unhandled error in /api/points:", err);
