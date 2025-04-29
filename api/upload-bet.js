@@ -54,6 +54,12 @@ const normalizeName = (t) =>
         .toLowerCase()
         .trim();
 
+// Helper to normalize prop string (lowercase, remove spaces, fallback)
+const normalizeProp = (prop) => {
+    return prop?.toLowerCase().replace(/\s+/g, '') || 'unknown';
+};
+
+
 const makeBox = (v) => {
     const xs = v.map((p) => p.x),
         ys = v.map((p) => p.y);
@@ -135,12 +141,12 @@ function parseSimpleBookmakerText(rawText, words) {
                      const lineIndex = line.indexOf(lineMatch[0], playerIndex + player.length); // Find line after player
                      if (playerIndex !== -1 && lineIndex !== -1 && lineIndex > playerIndex) {
                          prop = line.substring(playerIndex + player.length, lineIndex).trim();
-                         // Clean up common prop abbreviations if necessary
+                         // Clean up common prop abbreviations if necessary (still happens before full normalization)
                          prop = prop.replace(/3PTS/gi, "3PT made")
-                                    .replace(/PTS/gi, "points")
-                                    .replace(/REB/gi, "rebounds")
-                                    .replace(/AST/gi, "assists")
-                                    .replace(/PRA/gi, "points + rebounds + assists");
+                                  .replace(/PTS/gi, "points")
+                                  .replace(/REB/gi, "rebounds")
+                                  .replace(/AST/gi, "assists")
+                                  .replace(/PRA/gi, "points + rebounds + assists");
                      }
                  } catch (e) {
                      console.warn("Basic prop extraction failed:", e);
@@ -151,7 +157,8 @@ function parseSimpleBookmakerText(rawText, words) {
                 if (player && lineValue !== undefined) {
                     structuredBets.push({
                         player: normalizeName(player),
-                        prop: prop.toLowerCase().trim(),
+                        // --- Apply full prop normalization here ---
+                        prop: normalizeProp(prop),
                         line: lineValue,
                         type: type,
                     });
@@ -294,19 +301,20 @@ Ensure your output is strictly a JSON array and nothing else.
                             console.warn("⚠️ GPT-4o Vision output was not a JSON array after parsing, defaulting to []. Output:", structuredBets);
                             structuredBets = [];
                         }
-                         // Basic validation for each parsed leg
+                        // Basic validation for each parsed leg AND apply prop normalization
                          structuredBets = structuredBets.filter(leg =>
                              leg.player && typeof leg.prop === 'string' && leg.prop.trim() !== '' &&
                              leg.line !== undefined && leg.line !== null && !isNaN(parseFloat(leg.line)) &&
                              ['over', 'under', 'unknown'].includes(leg.type?.toLowerCase?.()) // Validate type if present
                          ).map(leg => ({ // Normalize structure and values
                              player: normalizeName(leg.player),
-                             prop: leg.prop.toLowerCase().trim(),
+                             // --- Apply full prop normalization here ---
+                             prop: normalizeProp(leg.prop),
                              line: parseFloat(leg.line),
                              type: leg.type?.toLowerCase?.() || 'unknown' // Default to unknown if type is missing
                          }));
                          if (structuredBets.length === 0 && Array.isArray(JSON.parse(json)) && JSON.parse(json).length > 0) {
-                              console.warn("⚠️ Filtered out all legs from GPT-4o Vision output due to validation issues.");
+                             console.warn("⚠️ Filtered out all legs from GPT-4o Vision output due to validation issues.");
                          }
 
 
@@ -320,6 +328,7 @@ Ensure your output is strictly a JSON array and nothing else.
                     console.error("Error calling GPT-4o Vision API:", e);
                     // Fallback? Maybe try simple parsing or return an error?
                     console.warn("Falling back to simple text parsing due to GPT-4o Vision error.");
+                    // Note: Fallback calls parseSimpleBookmakerText which also applies normalization
                     structuredBets = parseSimpleBookmakerText(raw, words); // Fallback
                 }
 
@@ -327,6 +336,7 @@ Ensure your output is strictly a JSON array and nothing else.
                 // If it's a simple bookmaker (type explicit in text) or generic
                 console.log(`Processing with simple text parsing for ${bookmaker}...`);
                 // Use custom text parsing logic based on Vision OCR output
+                 // Note: parseSimpleBookmakerText already applies normalization internally now
                 structuredBets = parseSimpleBookmakerText(raw, words);
             }
 
