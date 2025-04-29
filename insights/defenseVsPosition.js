@@ -22,7 +22,14 @@ export async function getDefenseVsPosition({
     const playerPosition =
       activeRow?.true_position || fallbackRow?.position || "PG";
 
-    // 2️⃣ Stat-to-column map
+    // 2️⃣ Normalize statType aliases
+    const normalizedStatTypeMap = {
+      fgm: "fg_made",
+      fgmade: "fg_made",
+    };
+    statType = normalizedStatTypeMap[statType] || statType;
+
+    // 3️⃣ Stat-to-column map
     const columnMap = {
       pts: ["points_allowed", "points_allowed_rank"],
       reb: ["rebounds_allowed", "rebounds_allowed_rank"],
@@ -49,7 +56,7 @@ export async function getDefenseVsPosition({
       return { error: `Unsupported statType "${statType}"` };
     }
 
-    // 3️⃣ Pull the defense data for team vs position
+    // 4️⃣ Pull the defense data for team vs position
     const { data: result, error } = await supabase
       .from("positional_defense_rankings_top_minute")
       .select(`${valueCol}, ${rankCol}, defense_team_name`)
@@ -64,14 +71,13 @@ export async function getDefenseVsPosition({
       };
     }
 
-    // 4️⃣ Prepare dynamic explanation
+    // 5️⃣ Prepare dynamic explanation
     const statLabel = statType.toUpperCase();
     const statAvg = +result[valueCol].toFixed(1);
     const statRank = result[rankCol];
     const defenseTeam = result.defense_team_name;
     const position = playerPosition;
 
-    // ✅ Fixed ranking logic: high rank = poor defense = good matchup
     const tier =
       statRank >= 21
         ? "✅ Favorable matchup"
@@ -79,7 +85,6 @@ export async function getDefenseVsPosition({
         ? "⚠️ Tough matchup"
         : "🟨 Neutral matchup";
 
-    // 🔁 Verb map for natural phrasing
     const verbMap = {
       pts: "give up",
       reb: "allow",
@@ -98,12 +103,11 @@ export async function getDefenseVsPosition({
       blk: "allow",
       stl: "allow",
       blk_stl: "allow",
-      turnover: "force", // this one flips!
+      turnover: "force",
     };
 
     const verb = verbMap[statType] || "allow";
 
-    // 📝 Final summary
     const summary =
       statType === "turnover"
         ? `${tier} — The **${defenseTeam}** force an average of **${statAvg} TURNOVERS** from starting ${position}s this season, which ranks **#${statRank} in the NBA**.`
