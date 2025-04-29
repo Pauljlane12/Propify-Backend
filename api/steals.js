@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { getInsightsForStat } from "../insights/index.js";
+import { findPlayerByName } from "../utils/findPlayerByName.js"; // ✅ new import
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -14,27 +15,17 @@ export default async function stealsHandler(req, res) {
     return res.status(405).json({ error: "Only POST requests allowed" });
   }
 
-  // ── Body params (NOW INCLUDES direction)
-  const { player, line, direction } = req.body;           // ← added direction
+  // ── Body params
+  const { player, line, direction } = req.body;
   if (!player || typeof line !== "number") {
     return res
       .status(400)
       .json({ error: "Missing or invalid player or line" });
   }
 
-  // ── Split player name
-  const [firstName, ...lastParts] = player.trim().split(" ");
-  const lastName = lastParts.join(" ");
-  const statType = "stl";
-
   try {
-    // 🔍 Identify Player
-    const { data: playerRow } = await supabase
-      .from("players")
-      .select("player_id, team_id")
-      .ilike("first_name", `%${firstName}%`)
-      .ilike("last_name", `%${lastName}%`)
-      .maybeSingle();
+    // 🔍 Identify Player (using normalized matching)
+    const playerRow = await findPlayerByName(player, supabase);
 
     if (!playerRow) {
       return res.status(404).json({ error: "Player not found" });
@@ -57,13 +48,13 @@ export default async function stealsHandler(req, res) {
         ? nextGame?.visitor_team_id
         : nextGame?.home_team_id;
 
-    // 🚀 Build All Insights (direction forwarded)
+    // 🚀 Build All Insights
     const insights = await getInsightsForStat({
       playerId: player_id,
-      statType,
+      statType: "stl",
       statColumns: ["stl"],
       line,
-      direction,            // ← pass the flag
+      direction,
       teamId: team_id,
       opponentTeamId,
       supabase,
