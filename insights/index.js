@@ -11,7 +11,8 @@ import { getFgaTrendLast3 } from "./fgaTrendLast3.js";
 import { getFgPercentTrend } from "./getFgPercentTrend.js";
 import { getUsageRateTrend } from "./getUsageRateTrend.js";
 import { getTeamDefRatingRank } from "./getTeamDefRatingRank.js";
-import { getScoringSourceVs3ptDefense } from "./getScoringSourceVs3ptDefense.js"; // ✅ NEW
+import { getScoringSourceVs3ptDefense } from "./getScoringSourceVs3ptDefense.js";
+import { getFgTrendLast3ForBothTeams } from "./getFgTrendLast3ForBothTeams.js"; // ✅ NEW
 
 const getLastName = (name) => {
   if (!name) return "Player";
@@ -101,6 +102,12 @@ export async function getInsightsForStat({
       opponentTeamId,
       supabase,
     });
+
+    insights.advanced_metric_7_fg_trend_both_teams = await getFgTrendLast3ForBothTeams({
+      teamId,
+      opponentTeamId,
+      supabase,
+    });
   }
 
   if (statType === "pts") {
@@ -109,12 +116,11 @@ export async function getInsightsForStat({
       supabase,
     });
 
-    insights.advanced_metric_9_3pt_scoring_vs_defense =
-      await getScoringSourceVs3ptDefense({
-        playerId,
-        opponentTeamId,
-        supabase,
-      });
+    insights.advanced_metric_9_3pt_scoring_vs_defense = await getScoringSourceVs3ptDefense({
+      playerId,
+      opponentTeamId,
+      supabase,
+    });
   }
 
   if (["pts", "fgm", "fg3m", "ftm"].includes(statType)) {
