@@ -8,7 +8,8 @@ import { getTeamPaceRank } from "./teamPaceRank.js";
 import { getOpponentFgPercentLast3 } from "./opponentFgPercentLast3.js";
 import { getRestDayPerformance } from "./restDayPerformance.js";
 import { getFgaTrendLast3 } from "./fgaTrendLast3.js";
-import { getFgPercentTrend } from "./getFgPercentTrend.js"; // ✅ NEW
+import { getFgPercentTrend } from "./getFgPercentTrend.js"; // ✅ FG% Insight
+import { getUsageRateTrend } from "./getUsageRateTrend.js"; // ✅ Usage Rate Insight
 
 const getLastName = (name) => {
   if (!name) return "Player";
@@ -93,7 +94,6 @@ export async function getInsightsForStat({
     supabase,
   });
 
-  // Only show for rebounds
   if (statType === "reb") {
     insights.advanced_metric_4_opponent_fg_last3 =
       await getOpponentFgPercentLast3({
@@ -102,7 +102,6 @@ export async function getInsightsForStat({
       });
   }
 
-  // Only show for points props
   if (statType === "pts") {
     insights.advanced_metric_4_fga_trend_last3 = await getFgaTrendLast3({
       playerId,
@@ -110,9 +109,14 @@ export async function getInsightsForStat({
     });
   }
 
-  // ✅ FG% trend — only for scoring statTypes (single props)
+  // ✅ Custom scoring-only insights
   if (["pts", "fgm", "fg3m", "ftm"].includes(statType)) {
     insights.advanced_metric_5_fg_percent_trend = await getFgPercentTrend({
+      playerId,
+      supabase,
+    });
+
+    insights.advanced_metric_6_usage_rate_trend = await getUsageRateTrend({
       playerId,
       supabase,
     });
