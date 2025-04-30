@@ -10,7 +10,8 @@ import { getRestDayPerformance } from "./restDayPerformance.js";
 import { getFgaTrendLast3 } from "./fgaTrendLast3.js";
 import { getFgPercentTrend } from "./getFgPercentTrend.js";
 import { getUsageRateTrend } from "./getUsageRateTrend.js";
-import { getTeamDefRatingRank } from "./getTeamDefRatingRank.js"; // ✅ NEW
+import { getTeamDefRatingRank } from "./getTeamDefRatingRank.js";
+import { getScoringSourceVs3ptDefense } from "./getScoringSourceVs3ptDefense.js"; // ✅ NEW
 
 const getLastName = (name) => {
   if (!name) return "Player";
@@ -107,9 +108,15 @@ export async function getInsightsForStat({
       playerId,
       supabase,
     });
+
+    insights.advanced_metric_9_3pt_scoring_vs_defense =
+      await getScoringSourceVs3ptDefense({
+        playerId,
+        opponentTeamId,
+        supabase,
+      });
   }
 
-  // ✅ Custom scoring-only insights
   if (["pts", "fgm", "fg3m", "ftm"].includes(statType)) {
     insights.advanced_metric_5_fg_percent_trend = await getFgPercentTrend({
       playerId,
