@@ -8,8 +8,9 @@ import { getTeamPaceRank } from "./teamPaceRank.js";
 import { getOpponentFgPercentLast3 } from "./opponentFgPercentLast3.js";
 import { getRestDayPerformance } from "./restDayPerformance.js";
 import { getFgaTrendLast3 } from "./fgaTrendLast3.js";
-import { getFgPercentTrend } from "./getFgPercentTrend.js"; // ✅ FG% Insight
-import { getUsageRateTrend } from "./getUsageRateTrend.js"; // ✅ Usage Rate Insight
+import { getFgPercentTrend } from "./getFgPercentTrend.js";
+import { getUsageRateTrend } from "./getUsageRateTrend.js";
+import { getTeamDefRatingRank } from "./getTeamDefRatingRank.js"; // ✅ NEW
 
 const getLastName = (name) => {
   if (!name) return "Player";
@@ -95,11 +96,10 @@ export async function getInsightsForStat({
   });
 
   if (statType === "reb") {
-    insights.advanced_metric_4_opponent_fg_last3 =
-      await getOpponentFgPercentLast3({
-        opponentTeamId,
-        supabase,
-      });
+    insights.advanced_metric_4_opponent_fg_last3 = await getOpponentFgPercentLast3({
+      opponentTeamId,
+      supabase,
+    });
   }
 
   if (statType === "pts") {
@@ -118,6 +118,11 @@ export async function getInsightsForStat({
 
     insights.advanced_metric_6_usage_rate_trend = await getUsageRateTrend({
       playerId,
+      supabase,
+    });
+
+    insights.advanced_metric_8_team_def_rating_rank = await getTeamDefRatingRank({
+      opponentTeamId,
       supabase,
     });
   }
