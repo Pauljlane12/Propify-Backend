@@ -25,8 +25,8 @@ export default async function prHandler(req, res) {
   const normalize = (str) =>
     str
       .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "") // remove accents
-      .replace(/[^\w\s]/gi, "")        // remove punctuation
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\w\s]/gi, "")
       .toLowerCase()
       .trim();
 
@@ -36,7 +36,7 @@ export default async function prHandler(req, res) {
 
   try {
     const { data: players, error: playerError } = await supabase
-      .from("players")
+      .from("active_players") // ✅ FIXED
       .select("player_id, team_id, first_name, last_name");
 
     if (playerError || !players?.length) {
@@ -44,29 +44,14 @@ export default async function prHandler(req, res) {
       return res.status(500).json({ error: "Failed to fetch players" });
     }
 
-    // Debug log: check normalization comparisons
-    players.forEach((p) => {
+    const playerRow = players.find((p) => {
       const fullName = `${p.first_name} ${p.last_name}`;
-      console.log("🔍 Comparing:", normalize(fullName), "vs", normalizedTarget);
+      return normalize(fullName) === normalizedTarget;
     });
-
-    // Debug log: show players with matching last name
-    const lastNameMatches = players.filter(
-      (p) => normalize(p.last_name) === normalizedTarget.split(" ").pop()
-    );
-    console.log("🕵️ Possible matches by last name:", lastNameMatches);
-
-    const playerRow =
-      players.find((p) => {
-        const fullName = `${p.first_name} ${p.last_name}`;
-        return normalize(fullName) === normalizedTarget;
-      });
-      // Optional fallback (use with caution)
-      // || players.find((p) => normalize(`${p.first_name} ${p.last_name}`).includes(normalizedTarget));
 
     if (!playerRow) {
       console.error("❌ Player not found:", normalizedTarget);
-      return res.status(404).json({ error: `Player not found: ${player}` });
+      return res.status(404).json({ error: "Player not found" });
     }
 
     const { player_id, team_id } = playerRow;
