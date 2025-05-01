@@ -5,7 +5,6 @@ import { getMatchupHistory } from "./matchupHistory.js";
 import { getHomeAwaySplit } from "./homeAwaySplit.js";
 import { getProjectedGamePace } from "./gamePace.js";
 import { getTeamPaceRank } from "./teamPaceRank.js";
-import { getOpponentFgPercentLast3 } from "./opponentFgPercentLast3.js";
 import { getRestDayPerformance } from "./restDayPerformance.js";
 import { getFgaTrendLast3 } from "./fgaTrendLast3.js";
 import { getFgPercentTrend } from "./getFgPercentTrend.js";
@@ -93,19 +92,6 @@ export async function getInsightsForStat({
     statType,
     supabase,
   });
-
-  if (statType === "reb") {
-    insights.advanced_metric_4_opponent_fg_last3 = await getOpponentFgPercentLast3({
-      opponentTeamId,
-      supabase,
-    });
-
-    insights.advanced_metric_7_fg_trend_both_teams = await getFgTrendLast3ForBothTeams({
-      teamId,
-      opponentTeamId,
-      supabase,
-    });
-  }
 
   if (statType === "pts") {
     insights.advanced_metric_4_fga_trend_last3 = await getFgaTrendLast3({
