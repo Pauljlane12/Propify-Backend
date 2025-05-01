@@ -3,6 +3,7 @@
  * Dynamic player‑prop extractor using GPT‑4o Vision + Google Vision OCR
  * Now with improved name normalization to handle hyphens and apostrophes.
  * Implements tiered processing based on bookmaker complexity.
+ * Helper functions are moved to the top to avoid ReferenceErrors.
  */
 import { IncomingForm } from "formidable";
 import fs from "fs";
@@ -167,7 +168,7 @@ const sampleRGB = async (buf, box) => {
 };
 
 
-// REVISED detectHighlighted function for better row association (No changes needed for this fix)
+// REVISED detectHighlighted function for better row association
 async function detectHighlighted(words, imgBuf) {
     console.log("🎨 Starting color detection...");
     const rowChoices = {}; // Map: line_y -> 'over' | 'under'
@@ -295,6 +296,15 @@ function fuzzyColorMapMatch(colorMap, y) {
     return null;
 }
 
+// Placeholder for simple text parsing function if not already defined
+// This function is needed if you intend to use the simple parsing path
+function parseSimpleBookmakerText(rawText, words) {
+    console.warn("parseSimpleBookmakerText is a placeholder function and needs implementation.");
+    // Implement your simple text parsing logic here based on rawText and words
+    // Remember to use normalizeName and normalizeProp on extracted values
+    return []; // Return empty array as default if not implemented
+}
+
 
 /* ───────── Main handler ───────── */
 export default async function handler(req, res) {
@@ -376,7 +386,7 @@ export default async function handler(req, res) {
             /* ── Conditional Processing based on Bookmaker (GPT-4o Vision vs Simple Parse) ── */
             let structuredBets = [];
 
-            // If it's a complex bookmaker (visual type indicator) AND OpenAI is available
+            // If it's a complex bookmaker (visual type indicator) AND OpenAI is available AND image data is available
             if (["prizepicks", "underdog"].includes(bookmaker.toLowerCase()) && openai && imageBase64) {
                 console.log(`Processing with GPT-4o Vision for ${bookmaker}...`);
 
@@ -445,7 +455,7 @@ Ensure your output is strictly a JSON array and nothing else.
                              const normalizedPlayer = normalizeName(leg.player);
 
                              // Apply normalization to prop for consistency
-                             const normalizedProp = leg.prop ? leg.prop.toLowerCase().trim() : '';
+                             const normalizedProp = normalizeProp(leg.prop); // Use the helper
 
                              // Determine type, prioritizing color override if available
                              const txtType = leg.type?.toLowerCase?.() || "";
@@ -488,7 +498,7 @@ Ensure your output is strictly a JSON array and nothing else.
 
                              return {
                                  player: normalizedPlayer, // Use the improved normalized name
-                                 prop: normalizedProp,
+                                 prop: normalizedProp, // Use the normalized prop
                                  line: parseFloat(leg.line),
                                  type: finalType || "unknown", // Default to unknown if type is still null
                              };
@@ -544,8 +554,10 @@ Ensure your output is strictly a JSON array and nothing else.
 }
 
 // Placeholder for simple text parsing function if not already defined
-// function parseSimpleBookmakerText(rawText, words) {
-//     console.warn("parseSimpleBookmakerText is a placeholder function and needs implementation.");
-//     return []; // Return empty array as default
-// }
-
+// This function is needed if you intend to use the simple parsing path
+function parseSimpleBookmakerText(rawText, words) {
+    console.warn("parseSimpleBookmakerText is a placeholder function and needs implementation.");
+    // Implement your simple text parsing logic here based on rawText and words
+    // Remember to use normalizeName and normalizeProp on extracted values
+    return []; // Return empty array as default
+}
