@@ -47,12 +47,15 @@ const bookmakerKeywords = [
 
 /* ───────── Helpers ───────── */
 const normalizeName = (t) =>
-    t
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^\w\s]/g, "")
-        .toLowerCase()
-        .trim();
+  t
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")  // Remove accents
+    .replace(/-/g, " ")               // ✅ Convert hyphens to space
+    .replace(/[^\w\s]/g, "")          // Remove all other punctuation
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");            // Collapse multiple spaces
+
 
 // Helper to normalize prop string (lowercase, remove spaces, fallback)
 const normalizeProp = (prop) => {
@@ -136,22 +139,22 @@ function parseSimpleBookmakerText(rawText, words) {
                 // You might need to look for common prop terms or use word proximity from the `words` array
                 let prop = "unknown";
                 // Basic heuristic: grab text between player and line/type (very fragile)
-                 try {
-                     const playerIndex = line.indexOf(player);
-                     const lineIndex = line.indexOf(lineMatch[0], playerIndex + player.length); // Find line after player
-                     if (playerIndex !== -1 && lineIndex !== -1 && lineIndex > playerIndex) {
-                         prop = line.substring(playerIndex + player.length, lineIndex).trim();
-                         // Clean up common prop abbreviations if necessary (still happens before full normalization)
-                         prop = prop.replace(/3PTS/gi, "3PT made")
-                                  .replace(/PTS/gi, "points")
-                                  .replace(/REB/gi, "rebounds")
-                                  .replace(/AST/gi, "assists")
-                                  .replace(/PRA/gi, "points + rebounds + assists");
-                     }
-                 } catch (e) {
-                     console.warn("Basic prop extraction failed:", e);
-                     prop = "unknown";
-                 }
+                  try {
+                      const playerIndex = line.indexOf(player);
+                      const lineIndex = line.indexOf(lineMatch[0], playerIndex + player.length); // Find line after player
+                      if (playerIndex !== -1 && lineIndex !== -1 && lineIndex > playerIndex) {
+                          prop = line.substring(playerIndex + player.length, lineIndex).trim();
+                          // Clean up common prop abbreviations if necessary (still happens before full normalization)
+                          prop = prop.replace(/3PTS/gi, "3PT made")
+                                   .replace(/PTS/gi, "points")
+                                   .replace(/REB/gi, "rebounds")
+                                   .replace(/AST/gi, "assists")
+                                   .replace(/PRA/gi, "points + rebounds + assists");
+                      }
+                  } catch (e) {
+                      console.warn("Basic prop extraction failed:", e);
+                      prop = "unknown";
+                  }
 
 
                 if (player && lineValue !== undefined) {
@@ -168,9 +171,9 @@ function parseSimpleBookmakerText(rawText, words) {
         }
     }
 
-     if (structuredBets.length === 0) {
-         console.warn("Simple text parsing found no structured bets.");
-     }
+      if (structuredBets.length === 0) {
+          console.warn("Simple text parsing found no structured bets.");
+      }
 
     return structuredBets;
 }
@@ -302,20 +305,20 @@ Ensure your output is strictly a JSON array and nothing else.
                             structuredBets = [];
                         }
                         // Basic validation for each parsed leg AND apply prop normalization
-                         structuredBets = structuredBets.filter(leg =>
-                             leg.player && typeof leg.prop === 'string' && leg.prop.trim() !== '' &&
-                             leg.line !== undefined && leg.line !== null && !isNaN(parseFloat(leg.line)) &&
-                             ['over', 'under', 'unknown'].includes(leg.type?.toLowerCase?.()) // Validate type if present
-                         ).map(leg => ({ // Normalize structure and values
-                             player: normalizeName(leg.player),
-                             // --- Apply full prop normalization here ---
-                             prop: normalizeProp(leg.prop),
-                             line: parseFloat(leg.line),
-                             type: leg.type?.toLowerCase?.() || 'unknown' // Default to unknown if type is missing
-                         }));
-                         if (structuredBets.length === 0 && Array.isArray(JSON.parse(json)) && JSON.parse(json).length > 0) {
-                             console.warn("⚠️ Filtered out all legs from GPT-4o Vision output due to validation issues.");
-                         }
+                          structuredBets = structuredBets.filter(leg =>
+                              leg.player && typeof leg.prop === 'string' && leg.prop.trim() !== '' &&
+                              leg.line !== undefined && leg.line !== null && !isNaN(parseFloat(leg.line)) &&
+                              ['over', 'under', 'unknown'].includes(leg.type?.toLowerCase?.()) // Validate type if present
+                          ).map(leg => ({ // Normalize structure and values
+                              player: normalizeName(leg.player),
+                              // --- Apply full prop normalization here ---
+                              prop: normalizeProp(leg.prop),
+                              line: parseFloat(leg.line),
+                              type: leg.type?.toLowerCase?.() || 'unknown' // Default to unknown if type is missing
+                          }));
+                          if (structuredBets.length === 0 && Array.isArray(JSON.parse(json)) && JSON.parse(json).length > 0) {
+                              console.warn("⚠️ Filtered out all legs from GPT-4o Vision output due to validation issues.");
+                          }
 
 
                     } catch (e) {
@@ -336,7 +339,7 @@ Ensure your output is strictly a JSON array and nothing else.
                 // If it's a simple bookmaker (type explicit in text) or generic
                 console.log(`Processing with simple text parsing for ${bookmaker}...`);
                 // Use custom text parsing logic based on Vision OCR output
-                 // Note: parseSimpleBookmakerText already applies normalization internally now
+                  // Note: parseSimpleBookmakerText already applies normalization internally now
                 structuredBets = parseSimpleBookmakerText(raw, words);
             }
 
