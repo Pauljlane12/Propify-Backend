@@ -16,7 +16,6 @@ import { getScoringSourceVs3ptDefense }  from "./getScoringSourceVs3ptDefense.js
 import { getTeamDefRatingRank }          from "./getTeamDefRatingRank.js";
 
 // Rebounds-based
-import { getOpponentFgPercentLast3 }     from "./opponentFgPercentLast3.js";
 import { getFgTrendLast3ForBothTeams }   from "./getFgTrendLast3ForBothTeams.js";
 
 export async function getComboInsights({
@@ -94,10 +93,6 @@ export async function getComboInsights({
     });
 
     // ───── Specialty Insights: Rebounds-based ─────
-    insights.advanced_opponent_fg_last3 = await getOpponentFgPercentLast3({
-      opponentTeamId,
-      supabase,
-    });
     insights.advanced_fg_trend_both_teams = await getFgTrendLast3ForBothTeams({
       teamId,
       opponentTeamId,
