@@ -12,7 +12,8 @@ import { getFgPercentTrend } from "./getFgPercentTrend.js";
 import { getUsageRateTrend } from "./getUsageRateTrend.js";
 import { getTeamDefRatingRank } from "./getTeamDefRatingRank.js";
 import { getScoringSourceVs3ptDefense } from "./getScoringSourceVs3ptDefense.js";
-import { getFgTrendLast3ForBothTeams } from "./getFgTrendLast3ForBothTeams.js"; // ✅ NEW
+import { getFgTrendLast3ForBothTeams } from "./getFgTrendLast3ForBothTeams.js";
+import { getFg3aTrend } from "./getFg3aTrend.js"; // ✅ NEW
 
 const getLastName = (name) => {
   if (!name) return "Player";
@@ -32,19 +33,13 @@ export async function getInsightsForStat({
   supabase,
 }) {
   const insights = {};
-
   const playerLastName = getLastName(playerName);
-  console.log(
-    `🔍 getInsightsForStat: Determined playerLastName as "${playerLastName}" from playerName "${playerName}"`
-  );
-
-  const statColumns = [statType];
 
   insights.insight_1_hit_rate = await getLast10GameHitRate({
     playerId,
     playerLastName,
     statType,
-    statColumns,
+    statColumns: [statType],
     line,
     direction,
     supabase,
@@ -136,6 +131,13 @@ export async function getInsightsForStat({
 
     insights.advanced_metric_8_team_def_rating_rank = await getTeamDefRatingRank({
       opponentTeamId,
+      supabase,
+    });
+  }
+
+  if (["fg3a", "fg3m"].includes(statType)) {
+    insights.advanced_metric_10_fg3a_trend = await getFg3aTrend({
+      playerId,
       supabase,
     });
   }
