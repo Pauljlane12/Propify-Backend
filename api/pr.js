@@ -44,14 +44,29 @@ export default async function prHandler(req, res) {
       return res.status(500).json({ error: "Failed to fetch players" });
     }
 
-    const playerRow = players.find((p) => {
+    // Debug log: check normalization comparisons
+    players.forEach((p) => {
       const fullName = `${p.first_name} ${p.last_name}`;
-      return normalize(fullName) === normalizedTarget;
+      console.log("🔍 Comparing:", normalize(fullName), "vs", normalizedTarget);
     });
+
+    // Debug log: show players with matching last name
+    const lastNameMatches = players.filter(
+      (p) => normalize(p.last_name) === normalizedTarget.split(" ").pop()
+    );
+    console.log("🕵️ Possible matches by last name:", lastNameMatches);
+
+    const playerRow =
+      players.find((p) => {
+        const fullName = `${p.first_name} ${p.last_name}`;
+        return normalize(fullName) === normalizedTarget;
+      });
+      // Optional fallback (use with caution)
+      // || players.find((p) => normalize(`${p.first_name} ${p.last_name}`).includes(normalizedTarget));
 
     if (!playerRow) {
       console.error("❌ Player not found:", normalizedTarget);
-      return res.status(404).json({ error: "Player not found" });
+      return res.status(404).json({ error: `Player not found: ${player}` });
     }
 
     const { player_id, team_id } = playerRow;
