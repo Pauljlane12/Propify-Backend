@@ -7,17 +7,17 @@ import { getComboRestDayPerformance } from "./restDayPerformanceCombo.js";
 import { getComboPaceContext }        from "./paceContextCombo.js";
 import { getPositionalDefenseCombo }  from "./positionalDefenseCombo.js";
 
-// ───── Reused Specialty Insights ─────
+// ───── Reused Specialty Insights (correct paths) ─────
 // Points-based
-import { getFgaTrendLast3 }              from "../points/getFgaTrendLast3.js";
-import { getFgPercentTrend }             from "../points/getFgPercentTrend.js";
-import { getUsageRateTrend }             from "../points/getUsageRateTrend.js";
-import { getScoringSourceVs3ptDefense }  from "../points/getScoringSourceVs3ptDefense.js";
-import { getTeamDefRatingRank }          from "../points/getTeamDefRatingRank.js";
+import { getFgaTrendLast3 }              from "./fgaTrendLast3.js";
+import { getFgPercentTrend }             from "./getFgPercentTrend.js";
+import { getUsageRateTrend }             from "./getUsageRateTrend.js";
+import { getScoringSourceVs3ptDefense }  from "./getScoringSourceVs3ptDefense.js";
+import { getTeamDefRatingRank }          from "./getTeamDefRatingRank.js";
 
 // Rebounds-based
-import { getOpponentFgPercentLast3 }     from "../rebounds/getOpponentFgPercentLast3.js";
-import { getFgTrendLast3ForBothTeams }   from "../rebounds/getFgTrendLast3ForBothTeams.js";
+import { getOpponentFgPercentLast3 }     from "./opponentFgPercentLast3.js";
+import { getFgTrendLast3ForBothTeams }   from "./getFgTrendLast3ForBothTeams.js";
 
 export async function getComboInsights({
   playerId,
