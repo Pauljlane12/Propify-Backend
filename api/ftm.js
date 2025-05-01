@@ -9,40 +9,52 @@ const supabase = createClient(
 export default async function ftmHandler(req, res) {
   console.log("🔥 /api/ftm was hit:", req.body);
 
-  // ── Allow only POST
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Only POST requests allowed" });
   }
 
-  // ── Body params (NOW INCLUDES direction)
-  const { player, line, direction } = req.body;            // ← added direction
+  const { player, line, direction } = req.body;
   if (!player || typeof line !== "number") {
-    return res
-      .status(400)
-      .json({ error: "Missing or invalid player or line" });
+    return res.status(400).json({ error: "Missing or invalid player or line" });
   }
 
-  // ── Split player name
-  const [firstName, ...lastParts] = player.trim().split(" ");
-  const lastName = lastParts.join(" ");
-  const statType = "ftm"; // free‑throws made
+  // ✅ Normalize function to handle hyphens, punctuation, and case
+  const normalize = (str) =>
+    str
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // strip accents
+      .replace(/-/g, " ")              // convert hyphens to space
+      .replace(/[^\w\s]/gi, "")        // remove punctuation
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, " ");           // collapse extra spaces
+
+  const normalizedTarget = normalize(player);
+  const statType = "ftm";
 
   try {
-    // 🔍 Identify Player
-    const { data: playerRow } = await supabase
-      .from("players")
-      .select("player_id, team_id")
-      .ilike("first_name", `%${firstName}%`)
-      .ilike("last_name", `%${lastName}%`)
-      .maybeSingle();
+    // 🔍 Fetch players from active_players for best accuracy
+    const { data: players, error: playerError } = await supabase
+      .from("active_players")
+      .select("player_id, team_id, first_name, last_name");
+
+    if (playerError || !players?.length) {
+      console.error("❌ Failed to fetch players:", playerError);
+      return res.status(500).json({ error: "Failed to fetch players" });
+    }
+
+    const playerRow = players.find((p) => {
+      const fullName = `${p.first_name} ${p.last_name}`;
+      return normalize(fullName) === normalizedTarget;
+    });
 
     if (!playerRow) {
-      return res.status(404).json({ error: "Player not found" });
+      console.error("❌ Player not found:", normalizedTarget);
+      return res.status(404).json({ error: `Player not found: ${player}` });
     }
 
     const { player_id, team_id } = playerRow;
 
-    // 🏀 Get Opponent Team (Next Game)
     const { data: upcomingGames } = await supabase
       .from("games")
       .select("id, date, home_team_id, visitor_team_id, status")
@@ -57,13 +69,12 @@ export default async function ftmHandler(req, res) {
         ? nextGame?.visitor_team_id
         : nextGame?.home_team_id;
 
-    // 🚀 Build All Insights (direction forwarded)
     const insights = await getInsightsForStat({
       playerId: player_id,
       statType,
       statColumns: ["ftm"],
       line,
-      direction,              // ← pass the flag
+      direction,
       teamId: team_id,
       opponentTeamId,
       supabase,
