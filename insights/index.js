@@ -14,7 +14,8 @@ import { getTeamDefRatingRank } from "./getTeamDefRatingRank.js";
 import { getScoringSourceVs3ptDefense } from "./getScoringSourceVs3ptDefense.js";
 import { getFgTrendLast3ForBothTeams } from "./getFgTrendLast3ForBothTeams.js";
 import { getFg3aTrend } from "./getFg3aTrend.js";
-import { getFg3PctTrend } from "./getFg3PctTrend.js"; // ✅ NEW
+import { getOpponentFoulTendencies } from "./getOpponentFoulTendencies.js"; // ✅ NEW
+import { getOpponentStealsRank } from "./getOpponentStealsRank.js";         // ✅ NEW
 
 const getLastName = (name) => {
   if (!name) return "Player";
@@ -143,9 +144,16 @@ export async function getInsightsForStat({
     });
   }
 
-  if (statType === "fg3m") {
-    insights.advanced_metric_11_fg3_pct_trend = await getFg3PctTrend({
-      playerId,
+  if (statType === "ftm") {
+    insights.advanced_metric_10_opponent_foul_tendencies = await getOpponentFoulTendencies({
+      opponentTeamId,
+      supabase,
+    });
+  }
+
+  if (statType === "turnover") {
+    insights.advanced_metric_11_opponent_steals_rank = await getOpponentStealsRank({
+      opponentTeamId,
       supabase,
     });
   }
