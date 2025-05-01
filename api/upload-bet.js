@@ -307,14 +307,13 @@ Ensure your output is strictly a JSON array and nothing else.
                         // Basic validation for each parsed leg AND apply prop normalization
                           structuredBets = structuredBets.filter(leg =>
                               leg.player && typeof leg.prop === 'string' && leg.prop.trim() !== '' &&
-                              leg.line !== undefined && leg.line !== null && !isNaN(parseFloat(leg.line)) &&
+                              leg.line !== undefined && !isNaN(parseFloat(leg.line)) &&
                               ['over', 'under', 'unknown'].includes(leg.type?.toLowerCase?.()) // Validate type if present
                           ).map(leg => ({ // Normalize structure and values
-                              player: normalizeName(leg.player),
-                              // --- Apply full prop normalization here ---
+                              player: leg.player.trim(),                // ✅ Keep full name intact (e.g., "Karl-Anthony Towns")
                               prop: normalizeProp(leg.prop),
                               line: parseFloat(leg.line),
-                              type: leg.type?.toLowerCase?.() || 'unknown' // Default to unknown if type is missing
+                              type: leg.type?.toLowerCase?.() || 'unknown', // Default to unknown if type is missing
                           }));
                           if (structuredBets.length === 0 && Array.isArray(JSON.parse(json)) && JSON.parse(json).length > 0) {
                               console.warn("⚠️ Filtered out all legs from GPT-4o Vision output due to validation issues.");
@@ -331,7 +330,7 @@ Ensure your output is strictly a JSON array and nothing else.
                     console.error("Error calling GPT-4o Vision API:", e);
                     // Fallback? Maybe try simple parsing or return an error?
                     console.warn("Falling back to simple text parsing due to GPT-4o Vision error.");
-                    // Note: Fallback calls parseSimpleBookmakerText which also applies normalization
+                    // Note: parseSimpleBookmakerText already applies normalization internally now
                     structuredBets = parseSimpleBookmakerText(raw, words); // Fallback
                 }
 
