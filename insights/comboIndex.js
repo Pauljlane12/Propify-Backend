@@ -7,15 +7,12 @@ import { getComboRestDayPerformance } from "./restDayPerformanceCombo.js";
 import { getComboPaceContext }        from "./paceContextCombo.js";
 import { getPositionalDefenseCombo }  from "./positionalDefenseCombo.js";
 
-// ───── Reused Specialty Insights (correct paths) ─────
-// Points-based
+// ───── Reused Specialty Insights ─────
 import { getFgaTrendLast3 }              from "./fgaTrendLast3.js";
 import { getFgPercentTrend }             from "./getFgPercentTrend.js";
 import { getUsageRateTrend }             from "./getUsageRateTrend.js";
 import { getScoringSourceVs3ptDefense }  from "./getScoringSourceVs3ptDefense.js";
 import { getTeamDefRatingRank }          from "./getTeamDefRatingRank.js";
-
-// Rebounds-based
 import { getFgTrendLast3ForBothTeams }   from "./getFgTrendLast3ForBothTeams.js";
 
 export async function getComboInsights({
@@ -78,26 +75,30 @@ export async function getComboInsights({
       supabase,
     });
 
-    // ───── Specialty Insights: Points-based ─────
-    insights.advanced_fg_percent_trend = await getFgPercentTrend({ playerId, supabase });
-    insights.advanced_usage_rate_trend = await getUsageRateTrend({ playerId, supabase });
-    insights.advanced_fga_trend_last3 = await getFgaTrendLast3({ playerId, supabase });
-    insights.advanced_3pt_scoring_vs_defense = await getScoringSourceVs3ptDefense({
-      playerId,
-      opponentTeamId,
-      supabase,
-    });
-    insights.advanced_team_def_rating_rank = await getTeamDefRatingRank({
-      opponentTeamId,
-      supabase,
-    });
+    // ───── Points-Based Specialty Insights ─────
+    if (["pra", "pr", "pa", "pts"].includes(statType)) {
+      insights.advanced_fg_percent_trend = await getFgPercentTrend({ playerId, supabase });
+      insights.advanced_usage_rate_trend = await getUsageRateTrend({ playerId, supabase });
+      insights.advanced_fga_trend_last3 = await getFgaTrendLast3({ playerId, supabase });
+      insights.advanced_3pt_scoring_vs_defense = await getScoringSourceVs3ptDefense({
+        playerId,
+        opponentTeamId,
+        supabase,
+      });
+      insights.advanced_team_def_rating_rank = await getTeamDefRatingRank({
+        opponentTeamId,
+        supabase,
+      });
+    }
 
-    // ───── Specialty Insights: Rebounds-based ─────
-    insights.advanced_fg_trend_both_teams = await getFgTrendLast3ForBothTeams({
-      teamId,
-      opponentTeamId,
-      supabase,
-    });
+    // ───── FG% Trend Across Both Teams (Rebounds-Based) ─────
+    if (["pra", "pr"].includes(statType)) {
+      insights.advanced_fg_trend_both_teams = await getFgTrendLast3ForBothTeams({
+        teamId,
+        opponentTeamId,
+        supabase,
+      });
+    }
 
   } catch (err) {
     console.error("❌ Combo insights failed:", err.message);
