@@ -13,7 +13,8 @@ import { getUsageRateTrend } from "./getUsageRateTrend.js";
 import { getTeamDefRatingRank } from "./getTeamDefRatingRank.js";
 import { getScoringSourceVs3ptDefense } from "./getScoringSourceVs3ptDefense.js";
 import { getFgTrendLast3ForBothTeams } from "./getFgTrendLast3ForBothTeams.js";
-import { getFg3aTrend } from "./getFg3aTrend.js"; // ✅ NEW
+import { getFg3aTrend } from "./getFg3aTrend.js";
+import { getFg3PctTrend } from "./getFg3PctTrend.js"; // ✅ NEW
 
 const getLastName = (name) => {
   if (!name) return "Player";
@@ -137,6 +138,13 @@ export async function getInsightsForStat({
 
   if (["fg3a", "fg3m"].includes(statType)) {
     insights.advanced_metric_10_fg3a_trend = await getFg3aTrend({
+      playerId,
+      supabase,
+    });
+  }
+
+  if (statType === "fg3m") {
+    insights.advanced_metric_11_fg3_pct_trend = await getFg3PctTrend({
       playerId,
       supabase,
     });
