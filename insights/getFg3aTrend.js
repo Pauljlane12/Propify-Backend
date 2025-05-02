@@ -28,16 +28,31 @@ export async function getFg3aTrend({ playerId, supabase }) {
     const fg3a_season = currentAvgData?.stat_value ?? fallbackAvgData?.stat_value ?? null;
     const seasonUsed = currentAvgData ? currentSeason : previousSeason;
 
-    // 2️⃣ Pull recent games from both seasons (most recent first)
-    const { data: recentGames } = await supabase
-      .from("player_stats")
-      .select("game_date, game_season, fg3a")
-      .eq("player_id", playerId)
-      .not("fg3a", "is", null)
-      .order("game_date", { ascending: false })
-      .limit(10); // pull extra in case of gaps
+    // 2️⃣ Smart fallback logic to get last 3 valid games across seasons
+    async function getValidGames(season) {
+      const { data, error } = await supabase
+        .from("player_stats")
+        .select("game_date, fg3a")
+        .eq("player_id", playerId)
+        .eq("game_season", season)
+        .not("fg3a", "is", null)
+        .order("game_date", { ascending: false })
+        .limit(10);
 
-    if (!recentGames?.length) {
+      if (error || !data) return [];
+      return data.filter((g) => g.fg3a != null);
+    }
+
+    const currentGames = await getValidGames(currentSeason);
+    let last3 = currentGames.slice(0, 3);
+
+    if (last3.length < 3) {
+      const needed = 3 - last3.length;
+      const previousGames = await getValidGames(previousSeason);
+      last3 = [...last3, ...previousGames.slice(0, needed)];
+    }
+
+    if (last3.length === 0) {
       return {
         id: insightId,
         title: insightTitle,
@@ -47,13 +62,10 @@ export async function getFg3aTrend({ playerId, supabase }) {
       };
     }
 
-    // 3️⃣ Smart fallback logic to get last 3 valid games across seasons
-    const validRecent = recentGames.filter(g => g.fg3a !== null);
-    const last3 = validRecent.slice(0, 3);
+    const fg3a_last_3 = +(
+      last3.reduce((sum, g) => sum + g.fg3a, 0) / last3.length
+    ).toFixed(1);
 
-    const fg3a_last_3 = +(last3.reduce((sum, g) => sum + g.fg3a, 0) / last3.length).toFixed(1);
-
-    // 4️⃣ Create context and return
     const context = `He's averaged **${fg3a_last_3} 3PA** over his last 3 games — ${
       fg3a_season ? `vs **${fg3a_season}** on the season.` : `season average not available.`
     }`;
