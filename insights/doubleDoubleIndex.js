@@ -1,4 +1,4 @@
-import { getLast10DoubleDoubleHitRate } from "./last10DoubleDouble.js";
+import { getLast10DoubleDoubleHitRate } from "./last10DoubleDouble.js"; // Reused for triple doubles
 import { getSeasonVsLast3Combo } from "./seasonVsLast3Combo.js";
 import { getComboHomeAwaySplit } from "./homeAwaySplitCombo.js";
 import { getComboRestDayPerformance } from "./restDayPerformanceCombo.js";
@@ -6,23 +6,23 @@ import { getTeamDefenseRankInsight } from "./getTeamDefenseRank.js";
 import { getComboPaceContext } from "./paceContextCombo.js"; 
 import { getTeamDefRatingRank } from "./getTeamDefRatingRank.js"; 
 
-export async function getDoubleDoubleInsights({
+export async function getTripleDoubleInsights({
   playerId,
   playerName,
   teamId,
   opponentTeamId,
   supabase,
 }) {
-  const statType = "double_double"; // used for context, not a real stat column
+  const statType = "triple_double";
   const statColumns = ["pts", "reb", "ast"];
 
   const insights = {};
 
-  // 1. Last 10 Double-Doubles
+  // 1. Last 10 Triple-Doubles
   insights.insight_1_hit_rate = await getLast10DoubleDoubleHitRate({
     playerId,
     statColumns,
-    line: 2, // 2 categories with 10+ qualifies as double-double
+    line: 3, // 3 categories with 10+ qualifies as triple-double
     supabase,
   });
 
