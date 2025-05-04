@@ -3,6 +3,8 @@ import { getSeasonVsLast3Combo } from "./seasonVsLast3Combo.js";
 import { getComboHomeAwaySplit } from "./homeAwaySplitCombo.js";
 import { getComboRestDayPerformance } from "./restDayPerformanceCombo.js";
 import { getTeamDefenseRankInsight } from "./getTeamDefenseRank.js";
+import { getComboPaceContext } from "./paceContextCombo.js"; 
+import { getTeamDefRatingRank } from "./getTeamDefRatingRank.js"; 
 
 export async function getDoubleDoubleInsights({
   playerId,
@@ -16,7 +18,7 @@ export async function getDoubleDoubleInsights({
 
   const insights = {};
 
-  // 1. Last 10 games hit rate
+  // 1. Last 10 Double-Doubles
   insights.insight_1_hit_rate = await getLast10DoubleDoubleHitRate({
     playerId,
     statColumns,
@@ -24,14 +26,14 @@ export async function getDoubleDoubleInsights({
     supabase,
   });
 
-  // 2. Season avg vs last 3 in pts, reb, ast
+  // 2. Season vs Last 3 Game Averages (PTS, REB, AST)
   insights.insight_2_season_vs_last3 = await getSeasonVsLast3Combo({
     playerId,
     statColumns,
     supabase,
   });
 
-  // 3–5. Team defense rank in pts, reb, ast allowed
+  // 3–5. Opponent Defense Ranks (PTS, REB, AST)
   insights.def_rank_pts = await getTeamDefenseRankInsight({
     teamId: opponentTeamId,
     statType: "pts",
@@ -50,7 +52,7 @@ export async function getDoubleDoubleInsights({
     supabase,
   });
 
-  // 6. Home vs Away split
+  // 6. Home vs Away Performance
   insights.insight_6_home_away = await getComboHomeAwaySplit({
     playerId,
     teamId,
@@ -58,10 +60,22 @@ export async function getDoubleDoubleInsights({
     supabase,
   });
 
-  // 7. Rest day performance
+  // 7. Rest Day Performance
   insights.insight_7_rest_day = await getComboRestDayPerformance({
     playerId,
     statType,
+    supabase,
+  });
+
+  // 8. Projected Game Pace (both teams)
+  insights.insight_8_projected_pace = await getComboPaceContext({
+    opponentTeamId,
+    supabase,
+  });
+
+  // 9. Opponent Team Defensive Rating
+  insights.insight_9_def_rating = await getTeamDefRatingRank({
+    opponentTeamId,
     supabase,
   });
 
