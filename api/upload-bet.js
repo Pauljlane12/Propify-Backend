@@ -97,108 +97,97 @@ function detectBookmaker(words) {
 }
 
 /**
- * Basic text parsing logic for "simple" bookmakers (no GPT call).
- * This is a placeholder and needs significant refinement based on actual data.
- * @param {string} rawText - The full raw text from Google Vision.
- * @param {Array<Object>} words - Array of words with text and bounding boxes from Google Vision.
- * @returns {Array<Object>} - Array of structured bet legs [{ player, prop, line, type }].
- */
-function parseSimpleBookmakerText(rawText, words) {
-    console.log("Attempting simple text parsing for generic bookmaker...");
-    const structuredBets = [];
-    const lines = rawText.split('\n').filter(line => line.trim() !== ''); // Split into lines
+ * Simple bookmaker parser – now with solid DOUBLE/TRIPLE DOUBLE fallback
+ */function parseSimpleBookmakerText(rawText, words) {
+  console.log("Attempting simple text parsing for generic bookmaker…");
 
-    // Special parsing for Yes/No props like "DOUBLE DOUBLE", "TRIPLE DOUBLE"
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim().toLowerCase();
+  const structuredBets = [];
+  const lines = rawText.split("\n").filter((l) => l.trim() !== "");
 
-      if (line.includes("double double") || line.includes("triple double")) {
-        const prop = line.includes("triple") ? "triple_double" : "double_double";
+  /* ---------- A)  TRY NUMERIC‑PROP LOGIC (unchanged) ---------- */
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    console.log(`Parsing line ${i + 1}: "${line}"`);
 
-        // Search upwards for a valid player name (e.g., capitalized two-part name)
-        for (let j = i - 1; j >= 0; j--) {
-          const playerMatch = lines[j].match(/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+/);
-          if (playerMatch) {
-            structuredBets.push({
-              player: normalizeName(playerMatch[0]),
-              prop,
-              line: 0,             // No numeric line for binary props
-              type: "yes_or_no",   // You can adjust this to "yes" or "over" if needed
-            });
-            break; // Stop after finding one match
-          }
+    const playerMatch = line.match(/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+/);
+    if (!playerMatch) continue;
+
+    const player = playerMatch[0];
+    const numMatch = line.match(/\d+\.?\d*/);
+    if (!numMatch) continue;
+
+    const lineValue = parseFloat(numMatch[0]);
+    let type = "unknown";
+    if (line.toLowerCase().includes("over")) type = "over";
+    else if (line.toLowerCase().includes("under")) type = "under";
+
+    // crude prop extraction between player name & number
+    let prop = "unknown";
+    try {
+      const pIdx = line.indexOf(player);
+      const nIdx = line.indexOf(numMatch[0], pIdx + player.length);
+      if (pIdx !== -1 && nIdx !== -1 && nIdx > pIdx) {
+        prop = line
+          .substring(pIdx + player.length, nIdx)
+          .trim()
+          .replace(/3PTS?/gi, "3pt made")
+          .replace(/PTS/gi, "points")
+          .replace(/REB/gi, "rebs") // Use 'rebs' for consistency? Or match input? Sticking to 'rebounds' based on snippet comment
+          .replace(/AST/gi, "assists")
+          .replace(/PRA/gi, "pra"); // Use 'pra' for consistency? Sticking to 'points + rebounds + assists' based on snippet comment
+      }
+    } catch (_) {}
+
+    structuredBets.push({
+      player: normalizeName(player),
+      prop: normalizeProp(prop),
+      line: lineValue,
+      type,
+    });
+  }
+
+  /* ---------- B)  FALLBACK FOR DOUBLE / TRIPLE DOUBLE ---------- */
+  if (structuredBets.length === 0) {
+    const doubleIdx = lines.findIndex((l) =>
+      l.toLowerCase().includes("double double")
+    );
+    const tripleIdx = lines.findIndex((l) =>
+      l.toLowerCase().includes("triple double")
+    );
+
+    const idx = tripleIdx !== -1 ? tripleIdx : doubleIdx;
+    if (idx !== -1) {
+      const prop = tripleIdx !== -1 ? "triple_double" : "double_double";
+
+      /* Find nearest plausible player line above */
+      let player = "";
+      for (let j = idx - 1; j >= 0; j--) {
+        const m = lines[j].match(/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+/);
+        if (m && !/yes|no/i.test(lines[j])) {
+          player = normalizeName(m[0]);
+          break;
         }
       }
-    }
 
-    // This is a very basic example. Real parsing needs pattern matching,
-    // potentially using word bounding boxes to group related words (player, prop, line, type).
-    // You would need to analyze typical text structures from FanDuel, Hard Rock, Fliff, etc.
-
-    // Example basic line-by-line parsing heuristic (highly unreliable for complex layouts):
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        console.log(`Parsing line ${i + 1}: "${line}"`);
-
-        // Look for potential player name patterns (e.g., two capitalized words)
-        const playerMatch = line.match(/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+/);
-        if (playerMatch) {
-            const player = playerMatch[0];
-
-            // Look for potential line numbers (e.g., number with or without decimal)
-            const lineMatch = line.match(/\d+\.?\d*/);
-            if (lineMatch) {
-                const lineValue = parseFloat(lineMatch[0]);
-
-                // Look for "Over" or "Under" keywords near the line number
-                let type = "unknown";
-                if (line.toLowerCase().includes("over")) {
-                    type = "over";
-                } else if (line.toLowerCase().includes("under")) {
-                    type = "under";
-                }
-
-                // Attempt to extract prop (this is very hard with simple regex)
-                // You might need to look for common prop terms or use word proximity from the `words` array
-                let prop = "unknown";
-                // Basic heuristic: grab text between player and line/type (very fragile)
-                  try {
-                      const playerIndex = line.indexOf(player);
-                      const lineIndex = line.indexOf(lineMatch[0], playerIndex + player.length); // Find line after player
-                      if (playerIndex !== -1 && lineIndex !== -1 && lineIndex > playerIndex) {
-                          prop = line.substring(playerIndex + player.length, lineIndex).trim();
-                          // Clean up common prop abbreviations if necessary (still happens before full normalization)
-                          prop = prop.replace(/3PTS/gi, "3PT made")
-                                     .replace(/PTS/gi, "points")
-                                     .replace(/REB/gi, "rebs") // Use 'rebs' for consistency? Or match input? Sticking to 'rebounds' based on snippet comment
-                                     .replace(/AST/gi, "assists")
-                                     .replace(/PRA/gi, "pra"); // Use 'pra' for consistency? Sticking to 'points + rebounds + assists' based on snippet comment
-                      }
-                  } catch (e) {
-                      console.warn("Basic prop extraction failed:", e);
-                      prop = "unknown";
-                  }
-
-
-                if (player && lineValue !== undefined) {
-                    structuredBets.push({
-                        player: normalizeName(player),
-                        // --- Apply full prop normalization here ---
-                        prop: normalizeProp(prop),
-                        line: lineValue,
-                        type: type,
-                    });
-                    console.log("Parsed simple bet:", structuredBets[structuredBets.length - 1]);
-                }
-            }
-        }
-    }
-
-      if (structuredBets.length === 0) {
-          console.warn("Simple text parsing found no structured bets.");
+      if (player) {
+        structuredBets.push({
+          player,
+          prop,
+          line: 0,      // binary yes/no prop
+          type: "yes",  // default assumption
+        });
+        console.log(`✅ Fallback parsed ${prop} for ${player}`);
+      } else {
+        console.warn("Found DOUBLE/TRIPLE DOUBLE but could not locate player.");
       }
+    }
+  }
 
-    return structuredBets;
+  if (structuredBets.length === 0) {
+    console.warn("Simple text parsing found no structured bets.");
+  }
+
+  return structuredBets;
 }
 
 
