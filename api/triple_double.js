@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { getTripleDoubleInsights } from "../insights/tripleDoubleIndex.js";
+import { getTripleDoubleInsights } from "../insights/doubleDoubleIndex.js";
 
 console.log("🚀 /api/triple_double.js loaded");
 
