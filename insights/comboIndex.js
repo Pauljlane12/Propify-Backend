@@ -14,6 +14,7 @@ import { getUsageRateTrend }             from "./getUsageRateTrend.js";
 import { getScoringSourceVs3ptDefense }  from "./getScoringSourceVs3ptDefense.js";
 import { getTeamDefRatingRank }          from "./getTeamDefRatingRank.js";
 import { getFgTrendLast3ForBothTeams }   from "./getFgTrendLast3ForBothTeams.js";
+import { getTeamDefenseRankInsight }     from "./getTeamDefenseRank.js"; // ✅ NEW
 
 export async function getComboInsights({
   playerId,
@@ -98,6 +99,24 @@ export async function getComboInsights({
         opponentTeamId,
         supabase,
       });
+    }
+
+    // ───── NEW: Team Defense Rank Insights ─────
+    if (statType === "pra") {
+      insights.def_rank_pts = await getTeamDefenseRankInsight({ teamId: opponentTeamId, statType: "pts", supabase });
+      insights.def_rank_reb = await getTeamDefenseRankInsight({ teamId: opponentTeamId, statType: "reb", supabase });
+      insights.def_rank_ast = await getTeamDefenseRankInsight({ teamId: opponentTeamId, statType: "ast", supabase });
+    } else if (statType === "pr") {
+      insights.def_rank_pts = await getTeamDefenseRankInsight({ teamId: opponentTeamId, statType: "pts", supabase });
+      insights.def_rank_reb = await getTeamDefenseRankInsight({ teamId: opponentTeamId, statType: "reb", supabase });
+    } else if (statType === "pa") {
+      insights.def_rank_pts = await getTeamDefenseRankInsight({ teamId: opponentTeamId, statType: "pts", supabase });
+      insights.def_rank_ast = await getTeamDefenseRankInsight({ teamId: opponentTeamId, statType: "ast", supabase });
+    } else if (statType === "ra") {
+      insights.def_rank_reb = await getTeamDefenseRankInsight({ teamId: opponentTeamId, statType: "reb", supabase });
+      insights.def_rank_ast = await getTeamDefenseRankInsight({ teamId: opponentTeamId, statType: "ast", supabase });
+    } else if (["blk", "stl"].includes(statType)) {
+      insights.def_rank = await getTeamDefenseRankInsight({ teamId: opponentTeamId, statType, supabase });
     }
 
   } catch (err) {
