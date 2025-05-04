@@ -159,12 +159,18 @@ function detectBookmaker(words) {
     if (idx !== -1) {
       const prop = tripleIdx !== -1 ? "triple_double" : "double_double";
 
-      /* Find nearest plausible player line above */
+      /* Look upward for nearest player name line */
       let player = "";
       for (let j = idx - 1; j >= 0; j--) {
-        const m = lines[j].match(/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+/);
-        if (m && !/yes|no/i.test(lines[j])) {
-          player = normalizeName(m[0]);
+        const line = lines[j].trim();
+
+        // Allow either Pascal Case (e.g., LeBron James) or ALL CAPS (e.g., ALPEREN SENGUN)
+        const isLikelyName =
+          /^[A-Z][a-z]+(?: [A-Z][a-z]+)+$/.test(line) || // Title case
+          /^[A-Z]+(?: [A-Z]+)+$/.test(line);            // ALL CAPS
+
+        if (isLikelyName && !/yes|no/i.test(line)) {
+          player = normalizeName(line); // normalizeName handles all formatting
           break;
         }
       }
@@ -173,8 +179,8 @@ function detectBookmaker(words) {
         structuredBets.push({
           player,
           prop,
-          line: 0,      // binary yes/no prop
-          type: "yes",  // default assumption
+          line: 0,
+          type: "yes",
         });
         console.log(`✅ Fallback parsed ${prop} for ${player}`);
       } else {
@@ -248,15 +254,23 @@ export default async function handler(req, res) {
 
 
             // Detect the bookmaker based on keywords present in Vision output
-            const bookmaker = detectBookmaker(words);
-            console.log(`📩 Detected bookmaker: ${bookmaker}`);
+            let bookmaker = detectBookmaker(words); // Use let instead of const here as we might reassign
+
+            const normalizedRawText = raw.toLowerCase();
+            const forceGptForDoubleProps = normalizedRawText.includes("double double") || normalizedRawText.includes("triple double");
+            if (forceGptForDoubleProps) {
+              console.log("📸 Forcing GPT-4o Vision due to detected double/triple double keyword...");
+              bookmaker = "forced_gpt_double"; // optional override
+            }
+
+            console.log(`📩 Detected bookmaker: ${bookmaker}`); // Log the potentially updated bookmaker
 
             let structuredBets = [];
 
             /* ── Conditional Processing based on Bookmaker ── */
 
-            // If it's a complex bookmaker (visual type indicator)
-            if (["prizepicks", "underdog"].includes(bookmaker.toLowerCase())) {
+            // If it's a complex bookmaker (visual type indicator) or forced for doubles/triples
+            if (["prizepicks", "underdog", "forced_gpt_double"].includes(bookmaker.toLowerCase())) {
                 console.log(`Processing with GPT-4o Vision for ${bookmaker}...`);
 
                 // Prompt for GPT-4o Vision
@@ -272,6 +286,11 @@ Analyze the image and identify each distinct player prop bet. For each bet, crea
 Return a JSON array containing one object for each distinct player prop bet found. If no valid player prop bets can be identified in the image, return an empty JSON array \`[]\`.
 
 Ensure your output is strictly a JSON array and nothing else.
+
+If a bet type includes "double double" or "triple double", extract it with:
+- "prop": "double_double" or "triple_double"
+- "type": "yes" or "no" depending on what's visually selected
+- Do NOT include a "line" field for these props, since they don't have one
                 `;
 
                 try {
@@ -319,12 +338,14 @@ Ensure your output is strictly a JSON array and nothing else.
                         // Basic validation for each parsed leg AND apply prop normalization
                           structuredBets = structuredBets.filter(leg =>
                               leg.player && typeof leg.prop === 'string' && leg.prop.trim() !== '' &&
-                              leg.line !== undefined && !isNaN(parseFloat(leg.line)) &&
-                              ['over', 'under', 'unknown'].includes(leg.type?.toLowerCase?.()) // Validate type if present
+                              // Note: We no longer require 'line' for double/triple doubles based on prompt update
+                              (leg.prop === 'double_double' || leg.prop === 'triple_double' || (leg.line !== undefined && !isNaN(parseFloat(leg.line)))) &&
+                              ['over', 'under', 'yes', 'no', 'unknown'].includes(leg.type?.toLowerCase?.()) // Validate type if present, added 'yes', 'no'
                           ).map(leg => ({ // Normalize structure and values
-                              player: leg.player.trim(),         // ✅ Keep full name intact (e.g., "Karl-Anthony Towns")
+                              player: normalizeName(leg.player),         // Use normalizeName as suggested
                               prop: normalizeProp(leg.prop),
-                              line: parseFloat(leg.line),
+                              // Only include line if it's a numeric prop
+                              ...(leg.prop !== 'double_double' && leg.prop !== 'triple_double' && { line: parseFloat(leg.line) }),
                               type: leg.type?.toLowerCase?.() || 'unknown', // Default to unknown if type is missing
                           }));
                           if (structuredBets.length === 0 && Array.isArray(JSON.parse(json)) && JSON.parse(json).length > 0) {
