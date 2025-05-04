@@ -13,8 +13,9 @@ import { getTeamDefRatingRank } from "./getTeamDefRatingRank.js";
 import { getScoringSourceVs3ptDefense } from "./getScoringSourceVs3ptDefense.js";
 import { getFgTrendLast3ForBothTeams } from "./getFgTrendLast3ForBothTeams.js";
 import { getFg3aTrend } from "./getFg3aTrend.js";
-import { getOpponentFoulTendencies } from "./getOpponentFoulTendencies.js"; // ✅ NEW
-import { getOpponentStealsRank } from "./getOpponentStealsRank.js";         // ✅ NEW
+import { getOpponentFoulTendencies } from "./getOpponentFoulTendencies.js";
+import { getOpponentStealsRank } from "./getOpponentStealsRank.js";
+import { getTeamDefenseRankInsight } from "./getTeamDefenseRank.js"; // ✅ NEW
 
 const getLastName = (name) => {
   if (!name) return "Player";
@@ -140,6 +141,15 @@ export async function getInsightsForStat({
   if (statType === "turnover") {
     insights.advanced_metric_11_opponent_steals_rank = await getOpponentStealsRank({
       opponentTeamId,
+      supabase,
+    });
+  }
+
+  // ✅ NEW: Add overall opponent defensive rank
+  if (["pts", "reb", "ast", "blk", "stl", "fg3m", "fg3a", "turnover"].includes(statType)) {
+    insights.advanced_metric_12_team_defense_rank = await getTeamDefenseRankInsight({
+      teamId: opponentTeamId,
+      statType,
       supabase,
     });
   }
