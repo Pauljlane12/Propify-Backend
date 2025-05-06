@@ -75,7 +75,6 @@ export async function getInsightsForStat({
     supabase,
   });
 
-  // ✅ NEW: Pace-adjusted performance (replaces game pace + pace rank)
   insights.advanced_metric_2_pace_adjusted_performance = await getPaceAdjustedPerformance({
     playerId,
     opponentTeamId,
