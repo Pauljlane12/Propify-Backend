@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { getComboInsights } from "../insights/comboIndex.js";
 
-console.log("🚀 /api/pras.js loaded"); // confirm file loaded on Vercel
+console.log("🚀 /api/pras.js loaded");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -15,13 +15,14 @@ export default async function prasHandler(req, res) {
     return res.status(405).json({ error: "Only POST requests allowed" });
   }
 
-  const { player, line } = req.body;
+  const { player, line, direction } = req.body;
 
   if (!player || typeof line !== "number") {
     console.error("❌ Invalid request data:", req.body);
     return res.status(400).json({ error: "Missing or invalid player or line" });
   }
 
+  // Normalize and sanitize name
   const normalize = (str) =>
     str
       .normalize("NFD")
@@ -30,12 +31,13 @@ export default async function prasHandler(req, res) {
       .toLowerCase()
       .trim();
 
-  const normalizedTarget = normalize(player); // "michael porter jr"
+  const normalizedTarget = normalize(player);
 
   const statType = "pras";
   const statColumns = ["pts", "reb", "ast"];
 
   try {
+    // Fetch all players
     const { data: players, error: playerError } = await supabase
       .from("players")
       .select("player_id, team_id, first_name, last_name");
@@ -45,18 +47,26 @@ export default async function prasHandler(req, res) {
       return res.status(500).json({ error: "Failed to fetch players" });
     }
 
+    // Flexible match logic
     const playerRow = players.find((p) => {
-      const fullName = `${p.first_name} ${p.last_name}`;
-      return normalize(fullName) === normalizedTarget;
+      const fullName = normalize(`${p.first_name} ${p.last_name}`);
+      const reversedName = normalize(`${p.last_name} ${p.first_name}`);
+      return (
+        fullName === normalizedTarget ||
+        reversedName === normalizedTarget ||
+        fullName.includes(normalizedTarget) ||
+        normalizedTarget.includes(fullName)
+      );
     });
 
     if (!playerRow) {
-      console.error("❌ Player not found:", normalizedTarget);
-      return res.status(404).json({ error: "Player not found" });
+      console.error("❌ Player not found for:", normalizedTarget);
+      return res.status(404).json({ error: `Player not found: ${player}` });
     }
 
     const { player_id, team_id } = playerRow;
 
+    // Get upcoming opponent team
     const { data: upcomingGames, error: gameError } = await supabase
       .from("games")
       .select("home_team_id, visitor_team_id, status")
@@ -71,17 +81,18 @@ export default async function prasHandler(req, res) {
     }
 
     const nextGame = upcomingGames?.[0];
-
     const opponentTeamId =
       nextGame?.home_team_id === team_id
         ? nextGame?.visitor_team_id
         : nextGame?.home_team_id;
 
+    // Fetch PRA insights
     const insights = await getComboInsights({
       playerId: player_id,
       statType,
       statColumns,
       line,
+      direction,
       teamId: team_id,
       opponentTeamId,
       supabase,
@@ -89,7 +100,12 @@ export default async function prasHandler(req, res) {
 
     console.log("✅ PRA insights payload:", JSON.stringify(insights, null, 2));
 
-    return res.status(200).json({ player, line, insights });
+    return res.status(200).json({
+      player,
+      line,
+      direction,
+      insights,
+    });
   } catch (err) {
     console.error("❌ Unhandled server error:", err);
     return res.status(500).json({ error: "Internal server error" });
