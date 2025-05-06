@@ -3,8 +3,6 @@ import { getSeasonVsLast3 } from "./seasonVsLast3.js";
 import { getDefenseVsPosition } from "./defenseVsPosition.js";
 import { getMatchupHistory } from "./matchupHistory.js";
 import { getHomeAwaySplit } from "./homeAwaySplit.js";
-import { getProjectedGamePace } from "./gamePace.js";
-import { getTeamPaceRank } from "./teamPaceRank.js";
 import { getRestDayPerformance } from "./restDayPerformance.js";
 import { getFgaTrendLast3 } from "./fgaTrendLast3.js";
 import { getFgPercentTrend } from "./getFgPercentTrend.js";
@@ -15,7 +13,10 @@ import { getFgTrendLast3ForBothTeams } from "./getFgTrendLast3ForBothTeams.js";
 import { getFg3aTrend } from "./getFg3aTrend.js";
 import { getOpponentFoulTendencies } from "./getOpponentFoulTendencies.js";
 import { getOpponentStealsRank } from "./getOpponentStealsRank.js";
-import { getTeamDefenseRankInsight } from "./getTeamDefenseRank.js"; // ✅ NEW
+import { getTeamDefenseRankInsight } from "./getTeamDefenseRank.js";
+
+// ✅ NEW – Replaces old pace logic
+import { getPaceAdjustedPerformance } from "./getPaceAdjustedPerformance.js";
 
 const getLastName = (name) => {
   if (!name) return "Player";
@@ -76,14 +77,11 @@ export async function getInsightsForStat({
     supabase,
   });
 
-  insights.advanced_metric_1_projected_game_pace = await getProjectedGamePace({
-    teamId,
+  // ✅ NEW: Pace-adjusted performance (replaces game pace + pace rank)
+  insights.advanced_metric_2_pace_adjusted_performance = await getPaceAdjustedPerformance({
+    playerId,
     opponentTeamId,
-    supabase,
-  });
-
-  insights.advanced_metric_2_opponent_pace_rank = await getTeamPaceRank({
-    opponentTeamId,
+    statType,
     supabase,
   });
 
@@ -145,7 +143,6 @@ export async function getInsightsForStat({
     });
   }
 
-  // ✅ NEW: Add overall opponent defensive rank
   if (["pts", "reb", "ast", "blk", "stl", "fg3m", "fg3a", "turnover"].includes(statType)) {
     insights.advanced_metric_12_team_defense_rank = await getTeamDefenseRankInsight({
       teamId: opponentTeamId,
