@@ -7,14 +7,11 @@ export async function getPaceAdjustedPerformance({
   supabase,
 }) {
   try {
-    const statColumn = statType === "pras"
-      ? ["pts", "reb", "ast"]
-      : [statType];
-
     const currentSeason = CURRENT_SEASON;
     const lastSeason = currentSeason - 1;
+    const isComboStat = statType === "pras";
 
-    // 1. Get pace bucket for opponent
+    // Step 1: Get pace bucket for opponent
     const { data: paceRow } = await supabase
       .from("team_pace_profiles")
       .select("pace_bucket")
@@ -25,21 +22,20 @@ export async function getPaceAdjustedPerformance({
     let paceBucket = paceRow?.pace_bucket;
 
     if (!paceBucket) {
-      const { data: fallbackPace } = await supabase
+      const { data: fallbackRow } = await supabase
         .from("team_pace_profiles")
         .select("pace_bucket")
         .eq("team_id", opponentTeamId)
         .eq("season", lastSeason)
         .maybeSingle();
-
-      paceBucket = fallbackPace?.pace_bucket;
+      paceBucket = fallbackRow?.pace_bucket;
     }
 
     if (!paceBucket) {
       return { info: "No pace profile found for opponent." };
     }
 
-    // 2. Get teams in the same pace bucket
+    // Step 2: Get all teams in that pace bucket (this season, fallback to last)
     const { data: paceTeams } = await supabase
       .from("team_pace_profiles")
       .select("team_id")
@@ -63,77 +59,66 @@ export async function getPaceAdjustedPerformance({
       return { info: "No teams found in this pace bucket." };
     }
 
-    // 3. Join games to infer opponent
-    const { data: playedGames, error } = await supabase
+    // Step 3: Get all games the player played
+    const { data: statsData, error: statsError } = await supabase
       .from("player_stats")
-      .select(`
-        game_id,
-        min,
-        pts,
-        reb,
-        ast,
-        blk,
-        stl,
-        fg3m,
-        fg3a,
-        fga,
-        ftm,
-        fgm,
-        oreb,
-        dreb,
-        turnover,
-        game_season,
-        team_id,
-        games:game_id (
-          home_team_id,
-          visitor_team_id
-        )
-      `)
+      .select("*")
       .eq("player_id", playerId)
       .not("min", "is", null)
       .gt("min", 0);
 
-    if (error) return { error: error.message };
+    if (statsError) return { error: statsError.message };
+    if (!statsData?.length) return { info: "No games played by player." };
 
-    // 4. Infer opponent team ID
-    const withOpponent = (playedGames ?? []).map(g => {
-      const opponentId =
-        g.team_id === g.games?.home_team_id
-          ? g.games?.visitor_team_id
-          : g.games?.home_team_id;
-      return { ...g, opponent_team_id: opponentId };
-    });
+    const gameIds = statsData.map((s) => s.game_id);
+    const { data: gamesData, error: gamesError } = await supabase
+      .from("games")
+      .select("id, home_team_id, visitor_team_id, season")
+      .in("id", gameIds);
 
-    // 5. Filter games vs pace-matching teams
-    const currentSeasonStats = withOpponent.filter(
-      g => g.game_season === currentSeason && paceTeamIds.includes(g.opponent_team_id)
+    if (gamesError) return { error: gamesError.message };
+
+    // Step 4: Join player_stats + games and infer opponent team
+    const merged = statsData.map((s) => {
+      const game = gamesData.find((g) => g.id === s.game_id);
+      if (!game) return null;
+
+      const opponentTeamId =
+        s.team_id === game.home_team_id ? game.visitor_team_id : game.home_team_id;
+
+      return {
+        ...s,
+        game_season: game.season,
+        opponent_team_id: opponentTeamId,
+      };
+    }).filter(Boolean);
+
+    // Step 5: Filter by season + pace bucket
+    const currentGames = merged.filter(
+      (g) => g.game_season === currentSeason && paceTeamIds.includes(g.opponent_team_id)
     );
-    const lastSeasonStats = withOpponent.filter(
-      g => g.game_season === lastSeason && paceTeamIds.includes(g.opponent_team_id)
+    const lastGames = merged.filter(
+      (g) => g.game_season === lastSeason && paceTeamIds.includes(g.opponent_team_id)
     );
 
-    const gameStats = currentSeasonStats.length > 0
-      ? currentSeasonStats
-      : lastSeasonStats;
+    const usedGames = currentGames.length > 0 ? currentGames : lastGames;
+    const usedSeason = currentGames.length > 0 ? currentSeason : lastSeason;
 
-    const usedSeason = currentSeasonStats.length > 0 ? currentSeason : lastSeason;
-
-    if (gameStats.length === 0) {
+    if (usedGames.length === 0) {
       return { info: "No games found vs similar-paced teams." };
     }
 
-    // 6. Calculate average
-    const average =
-      statType === "pras"
-        ? +(gameStats.reduce((sum, g) => sum + g.pts + g.reb + g.ast, 0) / gameStats.length).toFixed(2)
-        : +(gameStats.reduce((sum, g) => sum + (g[statType] ?? 0), 0) / gameStats.length).toFixed(2);
+    // Step 6: Calculate stat average
+    const average = isComboStat
+      ? +(usedGames.reduce((sum, g) => sum + g.pts + g.reb + g.ast, 0) / usedGames.length).toFixed(2)
+      : +(usedGames.reduce((sum, g) => sum + (g[statType] ?? 0), 0) / usedGames.length).toFixed(2);
 
-    const context = `Against teams that play at a similar pace to tonight’s opponent, this player is averaging **${average} ${statType.toUpperCase()}** across **${gameStats.length} games** in ${usedSeason}.`;
+    const context = `Against teams that play at a similar pace to tonight’s opponent, this player is averaging **${average} ${statType.toUpperCase()}** across **${usedGames.length} games** in ${usedSeason}.`;
 
     return {
       statType,
       average,
-      games_played: gameStats.length,
+      games_played: usedGames.length,
       season: usedSeason,
       context,
     };
