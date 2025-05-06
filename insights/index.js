@@ -14,8 +14,6 @@ import { getFg3aTrend } from "./getFg3aTrend.js";
 import { getOpponentFoulTendencies } from "./getOpponentFoulTendencies.js";
 import { getOpponentStealsRank } from "./getOpponentStealsRank.js";
 import { getTeamDefenseRankInsight } from "./getTeamDefenseRank.js";
-
-// ✅ NEW – Replaces old pace logic
 import { getPaceAdjustedPerformance } from "./getPaceAdjustedPerformance.js";
 
 const getLastName = (name) => {
