@@ -1,12 +1,12 @@
 import { getMostRecentSeason } from "../utils/getMostRecentSeason.js";
 
-export async function getFgPercentTrend({ playerId, supabase }) {
+export async function getFgPercentTrend({ playerId, playerLastName, supabase }) {
   try {
     const currentSeason = await getMostRecentSeason(supabase);
     const previousSeason = currentSeason - 1;
     const minMinutes = 1;
 
-    // 1️⃣ Try to fetch current season FG% from season_averages
+    // 1️⃣ Try to fetch current season FG%
     const { data: currentAvg } = await supabase
       .from("season_averages")
       .select("stat_value")
@@ -16,9 +16,8 @@ export async function getFgPercentTrend({ playerId, supabase }) {
       .maybeSingle();
 
     let seasonFgPercent = currentAvg?.stat_value ?? null;
-    let usedFallbackSeason = false;
+    let usedFallbackSeason = fals;
 
-    // 2️⃣ Fallback to previous season if no FG% yet
     if (seasonFgPercent == null) {
       const { data: previousAvg } = await supabase
         .from("season_averages")
@@ -32,7 +31,6 @@ export async function getFgPercentTrend({ playerId, supabase }) {
       usedFallbackSeason = true;
     }
 
-    // 3️⃣ Get last 3 valid games, patched if needed
     const getValidGames = async (season) => {
       const { data } = await supabase
         .from("player_stats")
@@ -80,11 +78,23 @@ export async function getFgPercentTrend({ playerId, supabase }) {
 
     const formattedRecent = (fgPercentLast3 * 100).toFixed(1);
     const formattedSeason = (seasonFgPercent * 100).toFixed(1);
+    const diff = fgPercentLast3 - seasonFgPercent;
+
+    let trendWord = diff > 0
+      ? "up from"
+      : diff < 0
+      ? "down from"
+      : "matching";
+
+    const context =
+      trendWord === "matching"
+        ? `**${playerLastName}** is shooting **${formattedRecent}%** from the field over his last 3 games — matching his season average.`
+        : `**${playerLastName}** is shooting **${formattedRecent}%** from the field over his last 3 games — ${trendWord} his season average of **${formattedSeason}%**.`;
 
     return {
       fgPercentLast3,
       seasonFgPercent,
-      context: `He's shooting **${formattedRecent}%** from the field over his last 3 games — up from his season average of **${formattedSeason}%**.`,
+      context,
       usedFallbackSeason,
     };
   } catch (err) {
