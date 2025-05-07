@@ -6,7 +6,6 @@ export async function getFgPercentTrend({ playerId, playerLastName, supabase }) 
     const previousSeason = currentSeason - 1;
     const minMinutes = 1;
 
-    // 1️⃣ Try to fetch current season FG%
     const { data: currentAvg } = await supabase
       .from("season_averages")
       .select("stat_value")
@@ -16,7 +15,7 @@ export async function getFgPercentTrend({ playerId, playerLastName, supabase }) 
       .maybeSingle();
 
     let seasonFgPercent = currentAvg?.stat_value ?? null;
-    let usedFallbackSeason = fals;
+    let usedFallbackSeason = false; // ✅ fixed here
 
     if (seasonFgPercent == null) {
       const { data: previousAvg } = await supabase
@@ -80,11 +79,8 @@ export async function getFgPercentTrend({ playerId, playerLastName, supabase }) 
     const formattedSeason = (seasonFgPercent * 100).toFixed(1);
     const diff = fgPercentLast3 - seasonFgPercent;
 
-    let trendWord = diff > 0
-      ? "up from"
-      : diff < 0
-      ? "down from"
-      : "matching";
+    const trendWord =
+      diff > 0 ? "up from" : diff < 0 ? "down from" : "matching";
 
     const context =
       trendWord === "matching"
