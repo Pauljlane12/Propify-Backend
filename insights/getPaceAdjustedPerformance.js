@@ -10,7 +10,7 @@ export async function getPaceAdjustedPerformance({
     const currentSeason = CURRENT_SEASON;
     const isComboStat = statType === "pras";
 
-    // 1. Get opponent's pace bucket (2024+ only, no fallback for consistency with SQL)
+    // 1. Get opponent's pace bucket
     const { data: paceRow } = await supabase
       .from("team_pace_profiles")
       .select("pace_bucket")
@@ -19,12 +19,11 @@ export async function getPaceAdjustedPerformance({
       .maybeSingle();
 
     const paceBucket = paceRow?.pace_bucket;
-
     if (!paceBucket) {
-      return { info: "No pace profile found for opponent (2024)." };
+      return { info: "No pace profile found for opponent." };
     }
 
-    // 2. Get all teams in that pace bucket (no fallback)
+    // 2. Get all teams in that pace bucket
     const { data: paceTeams, error: paceError } = await supabase
       .from("team_pace_profiles")
       .select("team_id")
@@ -32,24 +31,23 @@ export async function getPaceAdjustedPerformance({
       .eq("season", currentSeason);
 
     if (paceError || !paceTeams?.length) {
-      return { info: "No pace bucket teams found (2024)." };
+      return { info: "No teams found in this pace bucket." };
     }
 
     const paceTeamIds = paceTeams.map((t) => t.team_id);
 
-    // 3. Get all player games with valid minutes
+    // 3. Get player stats with all games
     const { data: statsData, error: statsError } = await supabase
       .from("player_stats")
       .select("*")
       .eq("player_id", playerId)
-      .not("min", "is", null)
-      .gt("min", 0);
+      .not("min", "is", null);
 
     if (statsError || !statsData?.length) {
       return { info: "No valid player stat data." };
     }
 
-    // 4. Get game metadata for opponent inference
+    // 4. Get game metadata
     const gameIds = statsData.map((g) => g.game_id);
     const { data: gamesData, error: gamesError } = await supabase
       .from("games")
@@ -58,17 +56,21 @@ export async function getPaceAdjustedPerformance({
 
     if (gamesError) return { error: gamesError.message };
 
-    // 5. Merge stats + games and infer opponent
+    // 5. Merge, parse min, and filter valid games
     const merged = statsData
       .map((g) => {
         const game = gamesData.find((row) => row.id === g.game_id);
         if (!game) return null;
+
+        const parsedMin = parseFloat(g.min);
+        if (isNaN(parsedMin) || parsedMin === 0) return null;
 
         const opponentId =
           g.team_id === game.home_team_id ? game.visitor_team_id : game.home_team_id;
 
         return {
           ...g,
+          min: parsedMin,
           game_date: game.date,
           game_season: game.season,
           opponent_team_id: opponentId,
@@ -76,7 +78,7 @@ export async function getPaceAdjustedPerformance({
       })
       .filter(Boolean);
 
-    // 6. Filter games to matching pace teams in CURRENT_SEASON only
+    // 6. Filter games vs similar-paced teams in CURRENT_SEASON
     const usedGames = merged.filter(
       (g) =>
         g.game_season === currentSeason &&
@@ -87,7 +89,7 @@ export async function getPaceAdjustedPerformance({
       return { info: "No games found vs similar-paced teams in 2024." };
     }
 
-    // 7. Calculate stat average
+    // 7. Compute average
     const average = isComboStat
       ? +(
           usedGames.reduce((sum, g) => sum + g.pts + g.reb + g.ast, 0) /
@@ -98,8 +100,8 @@ export async function getPaceAdjustedPerformance({
           usedGames.length
         ).toFixed(2);
 
-    // ✅ DEBUG LOGGING
-    console.log("✅ Pace-Adjusted Performance Debug:");
+    // 8. Debug log
+    console.log("✅ Pace-Adjusted Games Used:");
     console.table(
       usedGames.map((g) => ({
         game_date: g.game_date,
@@ -115,9 +117,10 @@ export async function getPaceAdjustedPerformance({
       }))
     );
     console.log(
-      `📊 Used ${usedGames.length} games in season ${currentSeason} for pace bucket '${paceBucket}'`
+      `📊 Used ${usedGames.length} valid games in season ${currentSeason} for pace bucket "${paceBucket}"`
     );
 
+    // 9. Return insight
     const context = `Against teams that play at a similar pace to tonight’s opponent, this player is averaging **${average} ${statType.toUpperCase()}** across **${usedGames.length} games** in ${currentSeason}.`;
 
     return {
