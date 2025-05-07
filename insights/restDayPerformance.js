@@ -4,13 +4,13 @@ export async function getRestDayPerformance({
   playerId,
   teamId,
   statType,
+  playerLastName,
   supabase,
 }) {
   try {
     const statColumn = `avg_${statType}`;
     const lastSeason = CURRENT_SEASON - 1;
 
-    // 1. Count player's current season games played (min > 0)
     const { count: currentSeasonGames, error: gamesError } = await supabase
       .from("player_stats")
       .select("*", { count: "exact", head: true })
@@ -19,9 +19,7 @@ export async function getRestDayPerformance({
       .gt("min", 0)
       .eq("game_season", CURRENT_SEASON);
 
-    if (gamesError) {
-      return { error: gamesError.message };
-    }
+    if (gamesError) return { error: gamesError.message };
 
     if (currentSeasonGames < 5) {
       return {
@@ -29,7 +27,6 @@ export async function getRestDayPerformance({
       };
     }
 
-    // 2. Get the team's next upcoming game
     const { data: upcomingGames, error: upcomingError } = await supabase
       .from("games")
       .select("date")
@@ -44,7 +41,6 @@ export async function getRestDayPerformance({
       return { info: "No upcoming game found for this team." };
     }
 
-    // 3. Get the last game this player actually played (min > 0)
     const { data: lastPlayedStats, error: lastPlayedError } = await supabase
       .from("player_stats")
       .select("game_date")
@@ -59,13 +55,11 @@ export async function getRestDayPerformance({
       return { info: "No recent game found where player actually played." };
     }
 
-    // 4. Calculate rest days (NBA logic: subtract 1)
     const diffInDays = Math.floor(
       (new Date(nextGameDate) - new Date(lastPlayedDate)) / (1000 * 60 * 60 * 24)
     );
     const restDays = Math.max(0, diffInDays - 1);
 
-    // 5. Try to fetch current season's rest-day performance
     const { data: currentRows, error: currentError } = await supabase
       .from("player_rest_day_averages")
       .select(`${statColumn}, rest_days, games_played`)
@@ -74,13 +68,10 @@ export async function getRestDayPerformance({
       .eq("game_season", CURRENT_SEASON)
       .limit(1);
 
-    if (currentError) {
-      return { error: currentError.message };
-    }
+    if (currentError) return { error: currentError.message };
 
     let restRow = currentRows?.[0];
 
-    // 6. Fallback: try last season if current data is missing
     if (!restRow || restRow[statColumn] == null) {
       const { data: fallbackRows, error: fallbackError } = await supabase
         .from("player_rest_day_averages")
@@ -90,9 +81,7 @@ export async function getRestDayPerformance({
         .eq("game_season", lastSeason)
         .limit(1);
 
-      if (fallbackError) {
-        return { error: fallbackError.message };
-      }
+      if (fallbackError) return { error: fallbackError.message };
 
       restRow = fallbackRows?.[0];
 
@@ -104,12 +93,14 @@ export async function getRestDayPerformance({
       }
     }
 
-    // 7. Return final insight
+    // ✅ Final clean sentence
+    const context = `**${playerLastName}** averages **${restRow[statColumn]} ${statType.toUpperCase()}** on **${restRow.rest_days} days of rest**.`;
+
     return {
       rest_days: restRow.rest_days,
-      games_played: restRow.games_played,
-      [statColumn]: restRow[statColumn],
-      context: `On ${restRow.rest_days} days rest, this player is averaging ${restRow[statColumn]} ${statType.toUpperCase()} (${restRow.games_played} games).`,
+      average: restRow[statColumn],
+      season: restRow.game_season ?? CURRENT_SEASON,
+      context,
     };
   } catch (err) {
     return { error: err.message || "Unhandled error in restDayPerformance.js" };
