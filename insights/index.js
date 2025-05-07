@@ -7,7 +7,6 @@ import { getRestDayPerformance } from "./restDayPerformance.js";
 import { getFgaTrendLast3 } from "./fgaTrendLast3.js";
 import { getFgPercentTrend } from "./getFgPercentTrend.js";
 import { getUsageRateTrend } from "./getUsageRateTrend.js";
-import { getTeamDefRatingRank } from "./getTeamDefRatingRank.js";
 import { getScoringSourceVs3ptDefense } from "./getScoringSourceVs3ptDefense.js";
 import { getFgTrendLast3ForBothTeams } from "./getFgTrendLast3ForBothTeams.js";
 import { getFg3aTrend } from "./getFg3aTrend.js";
@@ -110,11 +109,6 @@ export async function getInsightsForStat({
 
     insights.advanced_metric_6_usage_rate_trend = await getUsageRateTrend({
       playerId,
-      supabase,
-    });
-
-    insights.advanced_metric_8_team_def_rating_rank = await getTeamDefRatingRank({
-      opponentTeamId,
       supabase,
     });
   }
