@@ -88,7 +88,7 @@ export default async function pointsHandler(req, res) {
       return res.status(400).json({ error: "Invalid opponent team ID" });
     }
 
-    // Step 4: Fetch insights
+    // Step 4: Fetch insights — ✅ NOW includes playerName
     const insights = await getInsightsForStat({
       playerId: player_id,
       playerName: player,
