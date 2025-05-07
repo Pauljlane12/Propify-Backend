@@ -1,5 +1,4 @@
 import { getMostRecentSeason } from "../utils/getMostRecentSeason.js";
-import { getLastName } from "../utils/getLastName.js"; // Assumes you have this helper
 
 export async function getMatchupHistory({
   playerId,
@@ -69,7 +68,9 @@ export async function getMatchupHistory({
     const hitCount = hasLine ? statList.filter((val) => val >= parsedLine).length : null;
     const seasonAvg = curr?.avg_value ? +curr.avg_value.toFixed(1) : null;
     const historicalAvg = prior?.avg_value ? +prior.avg_value.toFixed(1) : null;
-    const lastName = getLastName(playerName);
+
+    // ✅ Inline getLastName
+    const lastName = playerName?.trim().split(" ").slice(-1)[0] || "He";
 
     let context;
 
