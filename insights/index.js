@@ -48,6 +48,7 @@ export async function getInsightsForStat({
   insights.insight_2_season_vs_last3 = await getSeasonVsLast3({
     playerId,
     statType,
+    playerLastName, 
     supabase,
   });
 
@@ -61,6 +62,8 @@ export async function getInsightsForStat({
 
   insights.insight_4_matchup_history = await getMatchupHistory({
     playerId,
+    playerName, 
+    playerLastName, 
     opponentTeamId,
     statType,
     bettingLine: line,
