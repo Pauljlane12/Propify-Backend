@@ -1,6 +1,6 @@
 import { getMostRecentSeason } from "../utils/getMostRecentSeason.js";
 
-export async function getFgaTrendLast3({ playerId, supabase }) {
+export async function getFgaTrendLast3({ playerId, playerLastName, supabase }) {
   try {
     const currentSeason = await getMostRecentSeason(supabase);
 
@@ -22,6 +22,10 @@ export async function getFgaTrendLast3({ playerId, supabase }) {
       return !isNaN(minutes) && minutes >= 10 && g.fga != null;
     });
 
+    if (valid.length === 0) {
+      return { error: "No valid games with 10+ minutes found for FGA analysis." };
+    }
+
     // 3. Calculate season average
     const seasonTotal = valid.reduce((sum, g) => sum + g.fga, 0);
     const seasonAvg = seasonTotal / valid.length;
@@ -33,19 +37,26 @@ export async function getFgaTrendLast3({ playerId, supabase }) {
 
     const difference = last3Avg - seasonAvg;
 
+    // 5. Generate clean explanation
+    let trendNote = "";
+
+    if (difference > 1.5) {
+      trendNote = "He's taking more shots recently — potential uptick in usage.";
+    } else if (difference < -1.5) {
+      trendNote = "He's taking fewer shots recently — possible role change or tough matchups.";
+    } else {
+      trendNote = "His shot volume is consistent with his season average.";
+    }
+
+    const context = `**${playerLastName}** is averaging **${last3Avg.toFixed(
+      1
+    )} FGA** over his last 3 games vs **${seasonAvg.toFixed(1)}** on the season. ${trendNote}`;
+
     return {
       seasonAvgFGA: +seasonAvg.toFixed(1),
       last3AvgFGA: +last3Avg.toFixed(1),
       difference: +difference.toFixed(1),
-      context: `This player is averaging ${last3Avg.toFixed(
-        1
-      )} FGA over their last 3 games vs a season average of ${seasonAvg.toFixed(1)}. ${
-        difference > 0
-          ? "They're taking more shots recently — potential uptick in usage."
-          : difference < 0
-          ? "They're taking fewer shots recently — possible role change or tough matchups."
-          : "Their shot volume is consistent with their season average."
-      }`,
+      context,
     };
   } catch (err) {
     return { error: err.message };
