@@ -1,12 +1,11 @@
 import { getMostRecentSeason } from "../utils/getMostRecentSeason.js";
 
-export async function getUsageRateTrend({ playerId, supabase }) {
+export async function getUsageRateTrend({ playerId, playerLastName, supabase }) {
   try {
     const currentSeason = await getMostRecentSeason(supabase);
     const previousSeason = currentSeason - 1;
     const minGames = 3;
 
-    // Helper to fetch usage % by season
     const fetchUsageGames = async (season) => {
       const { data } = await supabase
         .from("advanced_stats")
@@ -40,8 +39,11 @@ export async function getUsageRateTrend({ playerId, supabase }) {
           )
         : null;
 
-    // Calculate full-season usage (current or fallback season only)
-    const seasonGames = currentGames.length > 0 ? currentGames : await fetchUsageGames(previousSeason);
+    const seasonGames =
+      currentGames.length > 0
+        ? currentGames
+        : await fetchUsageGames(previousSeason);
+
     const seasonUsage =
       seasonGames.length > 0
         ? parseFloat(
@@ -64,12 +66,23 @@ export async function getUsageRateTrend({ playerId, supabase }) {
     const formattedRecent = (usageLast3 * 100).toFixed(1);
     const formattedSeason = (seasonUsage * 100).toFixed(1);
 
+    const diff = usageLast3 - seasonUsage;
+    const trendWord =
+      Math.abs(diff) < 0.5
+        ? "matching"
+        : diff > 0
+        ? "up from"
+        : "down from";
+
+    const context =
+      trendWord === "matching"
+        ? `**${playerLastName}**'s usage rate is **${formattedRecent}%** over his last 3 games — matching his season average.`
+        : `**${playerLastName}**'s usage rate is **${formattedRecent}%** over his last 3 games — ${trendWord} his season average of **${formattedSeason}%**.`;
+
     return {
       usageLast3,
       seasonUsage,
-      context: `His usage rate is **${formattedRecent}%** over his last 3 games — ${
-        usageLast3 > seasonUsage ? "up" : "down"
-      } from his season average of **${formattedSeason}%**.`,
+      context,
       usedFallback,
     };
   } catch (err) {
@@ -81,4 +94,3 @@ export async function getUsageRateTrend({ playerId, supabase }) {
       error: err.message,
     };
   }
-}
