@@ -69,8 +69,9 @@ export async function getMatchupHistory({
     const seasonAvg = curr?.avg_value ? +curr.avg_value.toFixed(1) : null;
     const historicalAvg = prior?.avg_value ? +prior.avg_value.toFixed(1) : null;
 
-    // ✅ Inline getLastName
-    const lastName = playerName?.trim().split(" ").slice(-1)[0] || "He";
+    // ✅ Clean last name extraction
+    if (!playerName) return { error: "Missing playerName" };
+    const lastName = playerName.split(" ").pop();
 
     let context;
 
