@@ -1,6 +1,6 @@
-import { getMostRecentSeason } from "../utils/getMostRecentSeason.js";
+const { getMostRecentSeason } = require("../utils/getMostRecentSeason.js");
 
-export async function getUsageRateTrend({ playerId, playerLastName, supabase }) {
+async function getUsageRateTrend({ playerId, playerLastName, supabase }) {
   try {
     const currentSeason = await getMostRecentSeason(supabase);
     const previousSeason = currentSeason - 1;
@@ -94,3 +94,6 @@ export async function getUsageRateTrend({ playerId, playerLastName, supabase }) 
       error: err.message,
     };
   }
+}
+
+module.exports = { getUsageRateTrend };
