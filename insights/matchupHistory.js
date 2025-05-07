@@ -1,10 +1,12 @@
 import { getMostRecentSeason } from "../utils/getMostRecentSeason.js";
+import { getLastName } from "../utils/getLastName.js"; // Assumes you have this helper
 
 export async function getMatchupHistory({
   playerId,
+  playerName,
   opponentTeamId,
   statType,
-  bettingLine, // can be string or number
+  bettingLine,
   supabase,
 }) {
   try {
@@ -23,21 +25,18 @@ export async function getMatchupHistory({
       fgm: "fg made",
       oreb: "offensive rebounds",
       dreb: "defensive rebounds",
-      pras: "pras",
-      "pts+ast": "pts+assts",
-      "pts+reb": "pts+rebounds",
-      "reb+ast": "rebs+assists",
-      "blk+stl": "blocks + steals",
+      pras: "points+rebounds+assists",
+      "pts+ast": "points+assists",
+      "pts+reb": "points+rebounds",
+      "reb+ast": "rebounds+assists",
+      "blk+stl": "blocks+steals",
       turnover: "turnovers",
     };
 
     const normalizedStatType = statTypeAliasMap[statType] || statType;
-
-    // 🔢 Safely convert betting line
     const parsedLine = Number(bettingLine);
     const hasLine = !Number.isNaN(parsedLine);
 
-    // 1️⃣ Get current season matchup data
     const { data: curr } = await supabase
       .from("player_matchup_flat")
       .select("games_played, avg_value, stat_list")
@@ -47,7 +46,6 @@ export async function getMatchupHistory({
       .eq("season", currentSeason)
       .maybeSingle();
 
-    // 2️⃣ Get most recent prior season avg
     const { data: prior } = await supabase
       .from("player_matchup_flat")
       .select("avg_value")
@@ -59,7 +57,6 @@ export async function getMatchupHistory({
       .limit(1)
       .maybeSingle();
 
-    // 3️⃣ Get team name
     const { data: teamRow } = await supabase
       .from("teams")
       .select("full_name")
@@ -67,30 +64,24 @@ export async function getMatchupHistory({
       .maybeSingle();
 
     const teamName = teamRow?.full_name || "the opponent";
-
-    // 4️⃣ Process stats
     const statList = (curr?.stat_list || []).map(Number);
     const gameCount = statList.length;
-    const hitCount =
-      hasLine && gameCount > 0
-        ? statList.filter((val) => val >= parsedLine).length
-        : null;
-
+    const hitCount = hasLine ? statList.filter((val) => val >= parsedLine).length : null;
     const seasonAvg = curr?.avg_value ? +curr.avg_value.toFixed(1) : null;
     const historicalAvg = prior?.avg_value ? +prior.avg_value.toFixed(1) : null;
+    const lastName = getLastName(playerName);
 
-    // 5️⃣ Build summary
     let context;
-    if (seasonAvg !== null) {
-      const lineText =
-        hasLine && gameCount > 0
-          ? ` and has cleared the line (**${parsedLine}**) in **${hitCount} of ${gameCount} matchups**`
-          : "";
-      context = `This season, he’s averaging **${seasonAvg} ${statType.toUpperCase()}** vs the **${teamName}**${lineText}.`;
+
+    if (seasonAvg !== null && gameCount > 0) {
+      const lineInfo = hasLine
+        ? `, he has cleared the line (**${parsedLine}**) in **${hitCount} of ${gameCount} matchups**`
+        : "";
+      context = `In **${lastName}’s** last **${gameCount} matchups** vs the **${teamName}**${lineInfo}, averaging **${seasonAvg} ${statType.toUpperCase()}**.`;
     } else if (historicalAvg !== null) {
-      context = `He averages **${historicalAvg} ${statType.toUpperCase()}** all-time vs the **${teamName}**. He has not yet faced them this season.`;
+      context = `**${lastName}** has not faced the **${teamName}** this season but averages **${historicalAvg} ${statType.toUpperCase()}** against them all-time.`;
     } else {
-      context = `No matchup history found vs the **${teamName}** for this stat.`;
+      context = `No matchup history found for **${lastName}** vs the **${teamName}**.`;
     }
 
     return {
