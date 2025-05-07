@@ -48,7 +48,7 @@ export async function getInsightsForStat({
   insights.insight_2_season_vs_last3 = await getSeasonVsLast3({
     playerId,
     statType,
-    playerLastName, 
+    playerLastName,
     supabase,
   });
 
@@ -57,13 +57,14 @@ export async function getInsightsForStat({
     statType,
     teamId,
     opponentTeamId,
+    playerLastName,
     supabase,
   });
 
   insights.insight_4_matchup_history = await getMatchupHistory({
     playerId,
-    playerName, 
-    playerLastName, 
+    playerName,
+    playerLastName,
     opponentTeamId,
     statType,
     bettingLine: line,
@@ -74,11 +75,13 @@ export async function getInsightsForStat({
     playerId,
     teamId,
     statType,
+    playerLastName,
     supabase,
   });
 
   insights.advanced_metric_2_pace_adjusted_performance = await getPaceAdjustedPerformance({
     playerId,
+    playerLastName,
     opponentTeamId,
     statType,
     supabase,
@@ -88,18 +91,21 @@ export async function getInsightsForStat({
     playerId,
     teamId,
     statType,
+    playerLastName,
     supabase,
   });
 
   if (statType === "pts") {
     insights.advanced_metric_4_fga_trend_last3 = await getFgaTrendLast3({
       playerId,
+      playerLastName,
       supabase,
     });
 
     insights.advanced_metric_9_3pt_scoring_vs_defense = await getScoringSourceVs3ptDefense({
       playerId,
       opponentTeamId,
+      playerLastName,
       supabase,
     });
   }
@@ -107,11 +113,13 @@ export async function getInsightsForStat({
   if (["pts", "fgm", "fg3m", "ftm"].includes(statType)) {
     insights.advanced_metric_5_fg_percent_trend = await getFgPercentTrend({
       playerId,
+      playerLastName,
       supabase,
     });
 
     insights.advanced_metric_6_usage_rate_trend = await getUsageRateTrend({
       playerId,
+      playerLastName,
       supabase,
     });
   }
@@ -119,6 +127,7 @@ export async function getInsightsForStat({
   if (["fg3a", "fg3m"].includes(statType)) {
     insights.advanced_metric_10_fg3a_trend = await getFg3aTrend({
       playerId,
+      playerLastName,
       supabase,
     });
   }
@@ -141,6 +150,7 @@ export async function getInsightsForStat({
     insights.advanced_metric_12_team_defense_rank = await getTeamDefenseRankInsight({
       teamId: opponentTeamId,
       statType,
+      playerLastName,
       supabase,
     });
   }
