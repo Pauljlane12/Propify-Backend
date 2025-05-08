@@ -74,7 +74,7 @@ export async function getStatWithImpactPlayerOut({
       const zeroGameIds = (zeroGames || []).map((g) => g.game_id);
       if (!zeroGameIds.length) continue;
 
-      // Step 5: Find current player's stats in those games (where they played)
+      // Step 5: Get current player's stats in those games (where they played)
       const { data: userGames } = await supabase
         .from("player_stats")
         .select("game_id, min, " + statType)
@@ -84,7 +84,7 @@ export async function getStatWithImpactPlayerOut({
 
       if (!userGames?.length) continue;
 
-      // Only include valid games with >0 minutes and non-null stat
+      // Include all valid games (no slice)
       const validStats = userGames
         .filter(
           (g) =>
@@ -93,7 +93,6 @@ export async function getStatWithImpactPlayerOut({
             g[statType] != null &&
             !isNaN(g[statType])
         )
-        .slice(0, 3) // ✅ Take latest 3 valid games
         .map((g) => g[statType]);
 
       if (!validStats.length) continue;
