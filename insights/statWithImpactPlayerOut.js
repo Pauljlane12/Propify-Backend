@@ -39,24 +39,28 @@ export async function getStatWithImpactPlayerOut({
 
     const impactIds = impactRows.map((r) => r.player_id);
 
-    // Step 3: Get currently OUT or GTD teammates from nbaplayer_injuries
+    // Step 3: Get injured impact teammates using broader pattern matching for status
     const { data: injuredTeammates, error: injuryError } = await supabase
       .from("nbaplayer_injuries")
-      .select("player_id, full_name")
+      .select("player_id, full_name, status")
       .eq("team_id", teamId)
       .neq("player_id", playerId)
-      .in("player_id", impactIds)
-      .or(
-        "status.ilike.%out%,status.ilike.%game time decision%,status.ilike.%questionable%"
-      );
+      .in("player_id", impactIds);
 
     if (injuryError) {
       throw new Error("Failed to fetch injured teammates.");
     }
 
+    // Filter injuries using a flexible match to handle "Expected to be out", "Out", "Game Time Decision", etc.
+    const relevantStatuses = ["out", "expected", "game time", "questionable"];
+    const filteredTeammates = (injuredTeammates || []).filter((t) => {
+      const status = t.status?.toLowerCase() || "";
+      return relevantStatuses.some((keyword) => status.includes(keyword));
+    });
+
     const insights = [];
 
-    for (const teammate of injuredTeammates || []) {
+    for (const teammate of filteredTeammates) {
       const teammateId = teammate.player_id;
 
       // Step 4: Get all games where that teammate logged 0 minutes
