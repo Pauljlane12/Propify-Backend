@@ -2,7 +2,7 @@ import { getMostRecentSeason } from "../utils/getMostRecentSeason.js";
 
 /**
  * Returns how a player performs when any of their impact teammates are out.
- * Example: "Mitchell has averaged 30.6 PTS in 3 games without Evan Mobley."
+ * Mirrors the same logic as the working SQL version.
  */
 export async function getStatWithImpactPlayerOut({
   playerId,
@@ -27,7 +27,7 @@ export async function getStatWithImpactPlayerOut({
 
     const teamId = playerRow.team_id;
 
-    // Step 2: Get list of all impact teammates on same team (excluding this player)
+    // Step 2: Get all impact player IDs
     const { data: impactRows, error: impactError } = await supabase
       .from("impact_players")
       .select("player_id")
@@ -39,8 +39,8 @@ export async function getStatWithImpactPlayerOut({
 
     const impactIds = impactRows.map((r) => r.player_id);
 
-    // Step 3: Get injured impact teammates using broader pattern matching for status
-    const { data: injuredTeammates, error: injuryError } = await supabase
+    // Step 3: Get injured impact teammates on same team
+    const { data: injuredTeammatesRaw, error: injuryError } = await supabase
       .from("nbaplayer_injuries")
       .select("player_id, full_name, status")
       .eq("team_id", teamId)
@@ -51,19 +51,20 @@ export async function getStatWithImpactPlayerOut({
       throw new Error("Failed to fetch injured teammates.");
     }
 
-    // Filter injuries using a flexible match to handle "Expected to be out", "Out", "Game Time Decision", etc.
-    const relevantStatuses = ["out", "expected", "game time", "questionable"];
-    const filteredTeammates = (injuredTeammates || []).filter((t) => {
-      const status = t.status?.toLowerCase() || "";
-      return relevantStatuses.some((keyword) => status.includes(keyword));
-    });
+    // Filter for OUT / EXPECTED / GTD / QUESTIONABLE
+    const relevantKeywords = ["out", "expected", "game time", "questionable"];
+    const injuredTeammates = (injuredTeammatesRaw || []).filter((t) =>
+      relevantKeywords.some((kw) =>
+        (t.status || "").toLowerCase().includes(kw)
+      )
+    );
 
     const insights = [];
 
-    for (const teammate of filteredTeammates) {
+    for (const teammate of injuredTeammates) {
       const teammateId = teammate.player_id;
 
-      // Step 4: Get all games where that teammate logged 0 minutes
+      // Step 4: Find game_ids where teammate had 0 minutes
       const { data: zeroGames } = await supabase
         .from("player_stats")
         .select("game_id")
@@ -73,23 +74,29 @@ export async function getStatWithImpactPlayerOut({
       const zeroGameIds = (zeroGames || []).map((g) => g.game_id);
       if (!zeroGameIds.length) continue;
 
-      // Step 5: Get user’s player stats in those games (where they played)
+      // Step 5: Find current player's stats in those games (where they played)
       const { data: userGames } = await supabase
         .from("player_stats")
         .select("game_id, min, " + statType)
         .eq("player_id", playerId)
         .in("game_id", zeroGameIds)
-        .not("min", "in", ["0", "00", "00:00", null])
-        .order("game_id", { ascending: false })
-        .limit(3);
+        .order("game_id", { ascending: false });
 
-      if (!userGames || userGames.length === 0) continue;
+      if (!userGames?.length) continue;
 
+      // Only include valid games with >0 minutes and non-null stat
       const validStats = userGames
-        .filter((g) => g[statType] != null && !isNaN(g[statType]))
+        .filter(
+          (g) =>
+            g.min &&
+            !["0", "00", "00:00"].includes(g.min) &&
+            g[statType] != null &&
+            !isNaN(g[statType])
+        )
+        .slice(0, 3) // ✅ Take latest 3 valid games
         .map((g) => g[statType]);
 
-      if (validStats.length === 0) continue;
+      if (!validStats.length) continue;
 
       const avg = (
         validStats.reduce((sum, val) => sum + val, 0) / validStats.length
