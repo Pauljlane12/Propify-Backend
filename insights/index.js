@@ -14,6 +14,7 @@ import { getOpponentFoulTendencies } from "./getOpponentFoulTendencies.js";
 import { getOpponentStealsRank } from "./getOpponentStealsRank.js";
 import { getTeamDefenseRankInsight } from "./getTeamDefenseRank.js";
 import { getPaceAdjustedPerformance } from "./getPaceAdjustedPerformance.js";
+import { getStatWithImpactPlayerOut } from "./statWithImpactPlayerOut.js"; // ✅ NEW
 
 const getLastName = (name) => {
   if (!name) return "Player";
@@ -76,6 +77,13 @@ export async function getInsightsForStat({
     teamId,
     statType,
     playerLastName,
+    supabase,
+  });
+
+  insights.impact_of_injured_teammates = await getStatWithImpactPlayerOut({
+    playerId,
+    playerLastName,
+    statType,
     supabase,
   });
 
