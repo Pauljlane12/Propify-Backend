@@ -27,18 +27,27 @@ export async function getStatWithImpactPlayerOut({
 
     const teamId = playerRow.team_id;
 
-    // Step 2: Get list of currently OUT or GTD impact teammates (same team, excluding this player)
+    // Step 2: Get list of all impact teammates on same team (excluding this player)
+    const { data: impactRows, error: impactError } = await supabase
+      .from("impact_players")
+      .select("player_id")
+      .eq("is_impact_player", true);
+
+    if (impactError || !impactRows?.length) {
+      throw new Error("Failed to fetch impact players.");
+    }
+
+    const impactIds = impactRows.map((r) => r.player_id);
+
+    // Step 3: Get currently OUT or GTD teammates from nbaplayer_injuries
     const { data: injuredTeammates, error: injuryError } = await supabase
       .from("nbaplayer_injuries")
       .select("player_id, full_name")
       .eq("team_id", teamId)
       .neq("player_id", playerId)
-      .ilike("status", "%out%") // fallback added below
-      .or("status.ilike.%game time decision%,status.ilike.%questionable%")
-      .in("player_id", supabase
-        .from("impact_players")
-        .select("player_id")
-        .eq("is_impact_player", true)
+      .in("player_id", impactIds)
+      .or(
+        "status.ilike.%out%,status.ilike.%game time decision%,status.ilike.%questionable%"
       );
 
     if (injuryError) {
@@ -50,7 +59,7 @@ export async function getStatWithImpactPlayerOut({
     for (const teammate of injuredTeammates || []) {
       const teammateId = teammate.player_id;
 
-      // Step 3: Get all games where that teammate logged 0 minutes
+      // Step 4: Get all games where that teammate logged 0 minutes
       const { data: zeroGames } = await supabase
         .from("player_stats")
         .select("game_id")
@@ -58,10 +67,9 @@ export async function getStatWithImpactPlayerOut({
         .in("min", ["0", "00", "00:00", null]);
 
       const zeroGameIds = (zeroGames || []).map((g) => g.game_id);
+      if (!zeroGameIds.length) continue;
 
-      if (zeroGameIds.length === 0) continue;
-
-      // Step 4: Find games where playerId played in those games
+      // Step 5: Get user’s player stats in those games (where they played)
       const { data: userGames } = await supabase
         .from("player_stats")
         .select("game_id, min, " + statType)
@@ -74,7 +82,7 @@ export async function getStatWithImpactPlayerOut({
       if (!userGames || userGames.length === 0) continue;
 
       const validStats = userGames
-        .filter((g) => g[statType] !== null && !isNaN(g[statType]))
+        .filter((g) => g[statType] != null && !isNaN(g[statType]))
         .map((g) => g[statType]);
 
       if (validStats.length === 0) continue;
