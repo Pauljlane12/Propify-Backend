@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { getNFLInsightsForStat } from '../backend-nfl/insights-nfl/index.js';
+import { getNFLInsightsForStat } from './nfl/index.js';
 
 export const config = {
   api: {
