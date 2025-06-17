@@ -84,43 +84,143 @@ export default async function handler(req, res) {
     });
   }
 
+  // NFL nickname mapping for common variations
+  const nicknameMap = {
+    'dak': 'rayne dakota',
+    'josh': 'joshua',
+    'pat': 'patrick',
+    'mike': 'michael',
+    'rob': 'robert',
+    'dave': 'david',
+    'jim': 'james',
+    'bill': 'william',
+    'tom': 'thomas',
+    'joe': 'joseph',
+    'aj': 'a.j.',
+    'cj': 'c.j.',
+    'dj': 'd.j.',
+    'jj': 'j.j.',
+    'tj': 't.j.'
+  };
+
+  // Function to perform fuzzy player lookup with multiple strategies
+  async function findPlayerByName(playerName) {
+    console.log(`🔍 Starting fuzzy lookup for: ${playerName}`);
+    
+    // Strategy 1: Exact match (case insensitive)
+    const [firstName, ...lastParts] = playerName.toLowerCase().split(' ');
+    const lastName = lastParts.join(' ');
+    
+    console.log(`🔍 Strategy 1 - Exact match: firstName="${firstName}", lastName="${lastName}"`);
+    
+    let { data: playerData } = await supabase
+      .from('players')
+      .select('id, first_name, last_name, team_id, position')
+      .ilike('first_name', firstName)
+      .ilike('last_name', lastName)
+      .maybeSingle();
+
+    if (playerData) {
+      console.log(`✅ Strategy 1 success: Found ${playerData.first_name} ${playerData.last_name} (ID: ${playerData.id})`);
+      return playerData;
+    }
+
+    // Strategy 2: Partial match with wildcards
+    console.log(`🔍 Strategy 2 - Partial match with wildcards`);
+    
+    ({ data: playerData } = await supabase
+      .from('players')
+      .select('id, first_name, last_name, team_id, position')
+      .ilike('first_name', `%${firstName}%`)
+      .ilike('last_name', `%${lastName}%`)
+      .maybeSingle());
+
+    if (playerData) {
+      console.log(`✅ Strategy 2 success: Found ${playerData.first_name} ${playerData.last_name} (ID: ${playerData.id})`);
+      return playerData;
+    }
+
+    // Strategy 3: Try nickname expansion
+    const expandedFirstName = nicknameMap[firstName] || firstName;
+    if (expandedFirstName !== firstName) {
+      console.log(`🔍 Strategy 3 - Nickname expansion: "${firstName}" → "${expandedFirstName}"`);
+      
+      ({ data: playerData } = await supabase
+        .from('players')
+        .select('id, first_name, last_name, team_id, position')
+        .ilike('first_name', `%${expandedFirstName}%`)
+        .ilike('last_name', `%${lastName}%`)
+        .maybeSingle());
+
+      if (playerData) {
+        console.log(`✅ Strategy 3 success: Found ${playerData.first_name} ${playerData.last_name} (ID: ${playerData.id})`);
+        return playerData;
+      }
+    }
+
+    // Strategy 4: Search full name in concatenated field
+    console.log(`🔍 Strategy 4 - Full name search`);
+    
+    const { data: players } = await supabase
+      .from('players')
+      .select('id, first_name, last_name, team_id, position')
+      .ilike('first_name', `%${firstName}%`)
+      .limit(10);
+
+    if (players && players.length > 0) {
+      // Find best match by checking if last name is contained in any result
+      const bestMatch = players.find(p => 
+        p.last_name.toLowerCase().includes(lastName) || 
+        lastName.includes(p.last_name.toLowerCase())
+      );
+      
+      if (bestMatch) {
+        console.log(`✅ Strategy 4 success: Found ${bestMatch.first_name} ${bestMatch.last_name} (ID: ${bestMatch.id})`);
+        return bestMatch;
+      }
+    }
+
+    // Strategy 5: Last resort - search by last name only and find closest first name
+    console.log(`🔍 Strategy 5 - Last name only search`);
+    
+    const { data: lastNameMatches } = await supabase
+      .from('players')
+      .select('id, first_name, last_name, team_id, position')
+      .ilike('last_name', `%${lastName}%`)
+      .limit(5);
+
+    if (lastNameMatches && lastNameMatches.length > 0) {
+      console.log(`🔍 Found ${lastNameMatches.length} players with similar last name:`, 
+        lastNameMatches.map(p => `${p.first_name} ${p.last_name}`));
+      
+      // Return the first match as a fallback
+      const fallbackMatch = lastNameMatches[0];
+      console.log(`⚠️ Strategy 5 fallback: Using ${fallbackMatch.first_name} ${fallbackMatch.last_name} (ID: ${fallbackMatch.id})`);
+      return fallbackMatch;
+    }
+
+    console.log(`❌ All strategies failed for: ${playerName}`);
+    return null;
+  }
+
   try {
     console.log(`🏈 Getting NFL insights for ${playerName} - ${statType} ${direction} ${line}`);
     
-    // If playerId is not provided, look it up using playerName
+    // If playerId is not provided, look it up using fuzzy matching
     let finalPlayerId = playerId;
     
     if (!finalPlayerId) {
-      console.log(`🔍 Looking up player ID for ${playerName}`);
-      
-      // Split player name for database lookup
-      const [firstName, ...lastParts] = playerName.split(' ');
-      const lastName = lastParts.join(' ');
-
-      const { data: playerData, error: lookupError } = await supabase
-        .from('players')
-        .select('player_id')
-        .ilike('first_name', `%${firstName}%`)
-        .ilike('last_name', `%${lastName}%`)
-        .maybeSingle();
-
-      if (lookupError) {
-        console.error('❌ Player lookup error:', lookupError);
-        return res.status(500).json({ 
-          message: 'Error looking up player',
-          error: lookupError.message 
-        });
-      }
+      const playerData = await findPlayerByName(playerName);
 
       if (!playerData) {
-        console.log(`❌ Player not found: ${playerName}`);
+        console.log(`❌ Player not found after all strategies: ${playerName}`);
         return res.status(404).json({ 
-          message: `Player not found: ${playerName}` 
+          message: `Player not found: ${playerName}. Please check the spelling or try a different name format.` 
         });
       }
       
-      finalPlayerId = playerData.player_id;
-      console.log(`✅ Found player ID: ${finalPlayerId} for ${playerName}`);
+      finalPlayerId = playerData.id;  // Fixed: use 'id' instead of 'player_id'
+      console.log(`✅ Final player ID: ${finalPlayerId} for ${playerName} → ${playerData.first_name} ${playerData.last_name}`);
     }
     
     const result = await getNFLInsightsForStat({
