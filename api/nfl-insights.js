@@ -10,7 +10,6 @@ export const config = {
 // Use environment variables with fallback to hardcoded values
 const supabaseUrl = process.env.SUPABASE_URL || 'https://kdhnyndibqvolnwjfgop.supabase.co';
 const supabaseKey = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkaG55bmRpYnF2b2xud2pmZ29wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk1NzgyODMsImV4cCI6MjA2NTE1NDI4M30.qcK4WYX31FjRUvK_Wjd9aNEpi6zSIe3lTxcpsRw3uP8';
-
 console.log('🔧 Supabase URL:', supabaseUrl);
 console.log('🔧 Supabase Key (first 20 chars):', supabaseKey.substring(0, 20) + '...');
 
