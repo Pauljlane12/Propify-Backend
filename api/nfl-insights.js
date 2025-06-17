@@ -9,7 +9,7 @@ export const config = {
 
 const supabase = createClient(
   'https://kdhnyndibqvolnwjfgop.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkaG55bmRpYnF2b2xud2pmZ29wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk1NzgyODMsImV4cCI6MjA2NTE1NDI4M30.qcK4WYX31FjRUvK_Wjd9aNEpi6zSIe3lTxcpsRw3uP8'
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkaG55bmRpYnF2b2xud2pmZ29wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk1NzgyODMsImV4cCI6MjA2NTE0MjgzfQ.qcK4WYX31FjRUvK_Wjd9aNEpi6zSIe3lTxcpsRw3uP8'
 );
 
 // NFL stat type mapping for API requests
@@ -49,6 +49,50 @@ const nflStatMap = {
   'pass_tds+rush_tds': 'pass_tds+rush_tds',
 };
 
+// Function to find team by name or abbreviation
+async function findTeamByName(teamName) {
+  if (!teamName) return null;
+  
+  console.log(`🔍 Looking up team: "${teamName}"`);
+  
+  const cleanTeamName = teamName.trim().toLowerCase();
+  
+  // Try exact match on abbreviation first
+  let { data: teamData, error } = await supabase
+    .from('teams')
+    .select('id, name, abbreviation')
+    .ilike('abbreviation', cleanTeamName)
+    .maybeSingle();
+
+  if (error) {
+    console.log(`❌ Team abbreviation lookup error:`, error);
+  }
+
+  if (teamData) {
+    console.log(`✅ Found team by abbreviation: ${teamData.name} (${teamData.abbreviation}) - ID: ${teamData.id}`);
+    return teamData;
+  }
+
+  // Try partial match on team name
+  ({ data: teamData, error } = await supabase
+    .from('teams')
+    .select('id, name, abbreviation')
+    .ilike('name', `%${cleanTeamName}%`)
+    .maybeSingle());
+
+  if (error) {
+    console.log(`❌ Team name lookup error:`, error);
+  }
+
+  if (teamData) {
+    console.log(`✅ Found team by name: ${teamData.name} (${teamData.abbreviation}) - ID: ${teamData.id}`);
+    return teamData;
+  }
+
+  console.log(`❌ Team not found: "${teamName}"`);
+  return null;
+}
+
 export default async function handler(req, res) {
   console.log('🏈 HIT /api/nfl-insights');
   console.log('🏈 Request body:', JSON.stringify(req.body, null, 2));
@@ -64,7 +108,8 @@ export default async function handler(req, res) {
     line, 
     direction = 'over',
     teamId,
-    opponentTeamId 
+    opponentTeamId,
+    opponentTeam  // New parameter for opponent team name
   } = req.body;
 
   // Validate required parameters (only playerName and statType are required)
@@ -264,9 +309,11 @@ export default async function handler(req, res) {
     
     // If playerId is not provided, look it up using fuzzy matching
     let finalPlayerId = playerId;
+    let playerTeamId = teamId;
+    let playerData = null;
     
     if (!finalPlayerId) {
-      const playerData = await findPlayerByName(playerName);
+      playerData = await findPlayerByName(playerName);
 
       if (!playerData) {
         console.log(`❌ Player not found after all strategies: ${playerName}`);
@@ -276,7 +323,18 @@ export default async function handler(req, res) {
       }
       
       finalPlayerId = playerData.id;  // Fixed: use 'id' instead of 'player_id'
-      console.log(`✅ Final player ID: ${finalPlayerId} for ${playerName} → ${playerData.first_name} ${playerData.last_name}`);
+      playerTeamId = playerData.team_id; // Get team_id from player data
+      console.log(`✅ Final player ID: ${finalPlayerId} for ${playerName} → ${playerData.first_name} ${playerData.last_name} (Team ID: ${playerTeamId})`);
+    }
+
+    // Look up opponent team if provided
+    let finalOpponentTeamId = opponentTeamId;
+    if (!finalOpponentTeamId && opponentTeam) {
+      const opponentTeamData = await findTeamByName(opponentTeam);
+      if (opponentTeamData) {
+        finalOpponentTeamId = opponentTeamData.id;
+        console.log(`✅ Found opponent team: ${opponentTeamData.name} (ID: ${finalOpponentTeamId})`);
+      }
     }
     
     const result = await getNFLInsightsForStat({
@@ -285,8 +343,8 @@ export default async function handler(req, res) {
       statType: normalizedStatType,
       line: parseFloat(line),
       direction,
-      teamId,
-      opponentTeamId,
+      teamId: playerTeamId,
+      opponentTeamId: finalOpponentTeamId,
       supabase,
     });
 
