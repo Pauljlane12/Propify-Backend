@@ -15,7 +15,7 @@ import sharp from "sharp"; // Used for potential image processing like base64 co
 import { ImageAnnotatorClient } from "@google-cloud/vision";
 import OpenAI from "openai";
 
-/* ───────── Google / OpenAI init ───────── */
+/* ━━━━━━━━━ Google / OpenAI init ━━━━━━━━━ */
 // Ensure your GOOGLE_CLOUD_VISION_KEY is correctly formatted JSON string in your environment variables
 try {
     var google = JSON.parse(process.env.GOOGLE_CLOUD_VISION_KEY);
@@ -34,7 +34,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export const config = { api: { bodyParser: false } };
 
-/* ───────── Bookmaker Detection Keywords ───────── */
+/* ━━━━━━━━━ Bookmaker Detection Keywords ━━━━━━━━━ */
 // Add keywords for other bookmakers here as you expand
 const bookmakerKeywords = [
     { bookmaker: "prizepicks", keywords: ["More", "Less"] },
@@ -45,13 +45,13 @@ const bookmakerKeywords = [
     // { bookmaker: "fliff", keywords: ["Fliff"] },
 ];
 
-/* ───────── Helpers ───────── */
+/* ━━━━━━━━━ Helpers ━━━━━━━━━ */
 const normalizeName = (t) =>
   t
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")  // Remove accents
-    .replace(/-/g, " ")          // ✅ Convert hyphens to space
-    .replace(/[^\w\s]/g, "")          // Remove all other punctuation
+    .replace(/-/g, " ")           // ✅ Convert hyphens to space
+    .replace(/[^\w\s]/g, "")         // Remove all other punctuation
     .toLowerCase()
     .trim()
     .replace(/\s+/g, " ");           // Collapse multiple spaces
@@ -60,6 +60,30 @@ const normalizeName = (t) =>
 // Helper to normalize prop string (lowercase, remove spaces, fallback)
 const normalizeProp = (prop) => {
     return prop?.toLowerCase().replace(/\s+/g, '') || 'unknown';
+};
+
+// Helper to extract opponent team from text patterns like "vs DAL", "@ PHI", etc.
+const extractOpponentTeam = (text) => {
+    console.log("🔍 Extracting opponent team from text:", text);
+    
+    // Common patterns for opponent teams in betting slips
+    const patterns = [
+        /(?:vs\.?\s+|@\s+|against\s+)([A-Z]{2,4})\b/gi,  // "vs DAL", "@ PHI", "against BOS"
+        /\b([A-Z]{2,4})\s+(?:vs\.?|@)\s+[A-Z]{2,4}\b/gi, // "PHI vs DAL" format
+        /\b[A-Z]{2,4}\s+(?:vs\.?|@)\s+([A-Z]{2,4})\b/gi, // "DAL @ PHI" format
+    ];
+    
+    for (const pattern of patterns) {
+        const matches = [...text.matchAll(pattern)];
+        if (matches.length > 0) {
+            const opponent = matches[0][1];
+            console.log(`✅ Found opponent team: ${opponent}`);
+            return opponent;
+        }
+    }
+    
+    console.log("❌ No opponent team found in text");
+    return null;
 };
 
 
@@ -98,13 +122,14 @@ function detectBookmaker(words) {
 
 /**
  * Simple bookmaker parser – now with solid DOUBLE/TRIPLE DOUBLE fallback
- */function parseSimpleBookmakerText(rawText, words) {
+ */
+function parseSimpleBookmakerText(rawText, words) {
   console.log("Attempting simple text parsing for generic bookmaker…");
 
   const structuredBets = [];
   const lines = rawText.split("\n").filter((l) => l.trim() !== "");
 
-  /* ---------- A)  TRY NUMERIC‑PROP LOGIC (unchanged) ---------- */
+  /* --------- A)  TRY NUMERIC–PROP LOGIC (unchanged) --------- */
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     console.log(`Parsing line ${i + 1}: "${line}"`);
@@ -146,7 +171,7 @@ function detectBookmaker(words) {
     });
   }
 
-  /* ---------- B)  FALLBACK FOR DOUBLE / TRIPLE DOUBLE ---------- */
+  /* ----------- B)  FALLBACK FOR DOUBLE / TRIPLE DOUBLE ----------- */
   if (structuredBets.length === 0) {
     const doubleIdx = lines.findIndex((l) =>
       l.toLowerCase().includes("double double")
@@ -166,8 +191,8 @@ function detectBookmaker(words) {
 
         // Allow either Pascal Case (e.g., LeBron James) or ALL CAPS (e.g., ALPEREN SENGUN)
         const isLikelyName =
-          /^[A-Z][a-z]+(?: [A-Z][a-z]+)+$/.test(line) || // Title case
-          /^[A-Z]+(?: [A-Z]+)+$/.test(line);            // ALL CAPS
+          /^[A-Z][a-z]+(?:\s[A-Z][a-z]+)+$/.test(line) || // Title case
+          /^[A-Z]+(?:\s[A-Z]+)+$/.test(line);             // ALL CAPS
 
         if (isLikelyName && !/yes|no/i.test(line)) {
           player = normalizeName(line); // normalizeName handles all formatting
@@ -196,8 +221,7 @@ function detectBookmaker(words) {
   return structuredBets;
 }
 
-
-/* ───────── Main handler ───────── */
+/* ━━━━━━━━━ Main handler ━━━━━━━━━ */
 export default async function handler(req, res) {
     if (req.method !== "POST")
         return res.status(405).json({ message: "Only POST allowed" });
@@ -233,7 +257,7 @@ export default async function handler(req, res) {
             imageBase64 = buf.toString('base64');
 
 
-            /* ── OCR (Google Vision) ── */
+            /* ━━ OCR (Google Vision) ━━ */
             // Perform text detection on the image buffer
             const [vis] = await visionClient.textDetection(buf);
             const anns = vis.textAnnotations || [];
@@ -259,15 +283,15 @@ export default async function handler(req, res) {
             const normalizedRawText = raw.toLowerCase();
             const forceGptForDoubleProps = normalizedRawText.includes("double double") || normalizedRawText.includes("triple double");
             if (forceGptForDoubleProps) {
-              console.log("📸 Forcing GPT-4o Vision due to detected double/triple double keyword...");
-              bookmaker = "forced_gpt_double"; // optional override
+                console.log("📸 Forcing GPT-4o Vision due to detected double/triple double keyword...");
+                bookmaker = "forced_gpt_double"; // optional override
             }
 
             console.log(`📩 Detected bookmaker: ${bookmaker}`); // Log the potentially updated bookmaker
 
-            let structuredBets = [];
+           let structuredBets = [];
 
-            /* ── Conditional Processing based on Bookmaker ── */
+            /* ━━ Conditional Processing based on Bookmaker ━━ */
 
             // If it's a complex bookmaker (visual type indicator) or forced for doubles/triples
             if (["prizepicks", "underdog", "forced_gpt_double"].includes(bookmaker.toLowerCase())) {
@@ -282,6 +306,7 @@ Analyze the image and identify each distinct player prop bet. For each bet, crea
 -   \`prop\`: The specific statistic or event the bet is on (e.g., "points", "rebs", "asts", "pra", "3pt made", "strikeouts", "passing yards").
 -   \`line\`: The numerical threshold or total for the prop (e.g., 25.5, 8.0, 1.5). Extract this value accurately and ensure it is a number (float or integer).
 -   \`type\`: The direction of the bet relative to the line. Determine this by looking at which button ("More"/"Less" or "Higher"/"Lower") is visually highlighted (often by color). Use "over" if the "More"/"Higher" button is highlighted, and "under" if the "Less"/"Lower" button is highlighted. If the type is unclear from the visual cues, use "unknown".
+-   \`opponentTeam\`: Look for opponent team information in patterns like "vs DAL", "@ PHI", "against BOS". Extract the team abbreviation (e.g., "DAL", "PHI", "BOS"). If no opponent team is found, omit this field.
 
 Return a JSON array containing one object for each distinct player prop bet found. If no valid player prop bets can be identified in the image, return an empty JSON array \`[]\`.
 
@@ -332,22 +357,24 @@ If a bet type includes "double double" or "triple double", extract it with:
                         const parsedGptVision = JSON.parse(json);
                         // Ensure the parsed result is actually an array
                         if (Array.isArray(parsedGptVision)) {
-                             structuredBets = parsedGptVision.filter(leg =>
-                                 leg.player && typeof leg.prop === 'string' && leg.prop.trim() !== '' &&
-                                 // Note: We no longer require 'line' for double/triple doubles based on prompt update
-                                 (leg.prop === 'double_double' || leg.prop === 'triple_double' || (leg.line !== undefined && !isNaN(parseFloat(leg.line)))) &&
-                                 ['over', 'under', 'yes', 'no', 'unknown'].includes(leg.type?.toLowerCase?.()) // Validate type if present, added 'yes', 'no'
-                             ).map(leg => ({ // Normalize structure and values
-                                 player: normalizeName(leg.player),         // Use normalizeName as suggested
-                                 prop: normalizeProp(leg.prop),
-                                 // Only include line if it's a numeric prop
-                                 ...(leg.prop !== 'double_double' && leg.prop !== 'triple_double' && { line: parseFloat(leg.line) }),
-                                 type: leg.type?.toLowerCase?.() || 'unknown', // Default to unknown if type is missing
-                             }));
+                            structuredBets = parsedGptVision.filter(leg =>
+                                leg.player && typeof leg.prop === 'string' && leg.prop.trim() !== '' &&
+                                // Note: We no longer require 'line' for double/triple doubles based on prompt update
+                                (leg.prop === 'double_double' || leg.prop === 'triple_double' || (leg.line !== undefined && !isNaN(parseFloat(leg.line)))) &&
+                                ['over', 'under', 'yes', 'no', 'unknown'].includes(leg.type?.toLowerCase?.()) // Validate type if present, added 'yes', 'no'
+                            ).map(leg => ({ // Normalize structure and values
+                                player: normalizeName(leg.player),     // Use normalizeName as suggested
+                                prop: normalizeProp(leg.prop),
+                                // Only include line if it's a numeric prop
+                                ...(leg.prop !== 'double_double' && leg.prop !== 'triple_double' && { line: parseFloat(leg.line) }),
+                                type: leg.type?.toLowerCase?.() || 'unknown', // Default to unknown if type is missing
+                                // Include opponent team if extracted
+                                ...(leg.opponentTeam && { opponentTeam: leg.opponentTeam.toUpperCase() }),
+                            }));
                             console.log("✅ GPT-4o Vision parse succeeded:", structuredBets);
 
                         } else {
-                           console.warn("⚠️ GPT-4o Vision output was not a JSON array after parsing. Output:", parsedGptVision);
+                            console.warn("⚠️ GPT-4o Vision output was not a JSON array after parsing. Output:", parsedGptVision);
                         }
 
 
@@ -367,15 +394,24 @@ If a bet type includes "double double" or "triple double", extract it with:
 
             // If GPT-4o Vision didn't produce results OR it wasn't triggered, try simple text parsing
             if (structuredBets.length === 0) {
-                 console.log(`Processing with simple text parsing for ${bookmaker}...`);
-                 // Note: parseSimpleBookmakerText now handles its own double/triple fallback if it fails
-                 structuredBets = parseSimpleBookmakerText(raw, words);
+                console.log(`Processing with simple text parsing for ${bookmaker}...`);
+                // Note: parseSimpleBookmakerText now handles its own double/triple fallback if it fails
+                const simpleParsedBets = parseSimpleBookmakerText(raw, words);
+                
+                // Extract opponent team from the raw text for simple parsing
+                const opponentTeam = extractOpponentTeam(raw);
+                
+                // Add opponent team to each bet if found
+                structuredBets = simpleParsedBets.map(bet => ({
+                    ...bet,
+                    ...(opponentTeam && { opponentTeam: opponentTeam.toUpperCase() }),
+                }));
             }
 
 
             // GPT-3.5 fallback for simple Over/Under props if structuredBets is still empty
             if (structuredBets.length === 0 && (normalizedRawText.includes('over') || normalizedRawText.includes('under'))) {
-              console.log("🧪 Triggering GPT-3.5 fallback to extract simple Over/Under player props...");
+                console.log("🧪 Triggering GPT-3.5 fallback to extract simple Over/Under player props...");
 
               const fallbackPrompt = `
 Here is text from a sports betting slip:
@@ -412,26 +448,36 @@ Rules:
                 const fallbackParsed = JSON.parse(rawJson);
                 if (Array.isArray(fallbackParsed)) {
                   // Apply the same normalization as the GPT-4o parsing path
-                  structuredBets = fallbackParsed.filter(leg =>
-                      leg.player && typeof leg.prop === 'string' && leg.prop.trim() !== '' &&
-                      // GPT-3.5 fallback is specifically for numeric lines, so require 'line'
-                      (leg.line !== undefined && !isNaN(parseFloat(leg.line))) &&
-                      ['over', 'under', 'unknown'].includes(leg.type?.toLowerCase?.()) // Validate type
-                  ).map(leg => ({ // Normalize structure and values
-                      player: normalizeName(leg.player),
-                      prop: normalizeProp(leg.prop),
-                      line: parseFloat(leg.line),
-                      type: leg.type?.toLowerCase?.() || 'unknown',
+                  const fallbackWithOpponent = fallbackParsed.filter(leg =>
+                        leg.player && typeof leg.prop === 'string' && leg.prop.trim() !== '' &&
+                        // GPT-3.5 fallback is specifically for numeric lines, so require 'line'
+                        (leg.line !== undefined && !isNaN(parseFloat(leg.line))) &&
+                        ['over', 'under', 'unknown'].includes(leg.type?.toLowerCase?.()) // Validate type
+                    ).map(leg => ({ // Normalize structure and values
+                        player: normalizeName(leg.player),
+                        prop: normalizeProp(leg.prop),
+                        line: parseFloat(leg.line),
+                        type: leg.type?.toLowerCase?.() || 'unknown',
+                    }));
+                    
+                  // Extract opponent team from the raw text
+                  const opponentTeam = extractOpponentTeam(raw);
+                  
+                  // Add opponent team to each bet if found
+                  structuredBets = fallbackWithOpponent.map(bet => ({
+                      ...bet,
+                      ...(opponentTeam && { opponentTeam: opponentTeam.toUpperCase() }),
                   }));
+                  
                   console.log("✅ GPT-3.5 fallback succeeded:", structuredBets);
                 } else {
-                     console.warn("⚠️ GPT-3.5 fallback output was not a JSON array after parsing. Output:", fallbackParsed);
+                   console.warn("⚠️ GPT-3.5 fallback output was not a JSON array after parsing. Output:", fallbackParsed);
                 }
 
 
               } catch (err) {
                 console.warn("⚠️ GPT-3.5 fallback failed:", err);
-                 // structuredBets remains []
+                // structuredBets remains []
               }
             }
 
@@ -442,7 +488,7 @@ Rules:
 
         } catch (e) {
             // Catch any errors during the process and return a 500 response
-            console.error("upload‑bet processing error:", e);
+            console.error("upload–bet processing error:", e);
             return res.status(500).json({ message: "Server error during processing", error: e.message });
         } finally {
             // Clean up the uploaded file from the server's temporary storage
@@ -454,4 +500,4 @@ Rules:
             }
         }
     });
-}
+} 
