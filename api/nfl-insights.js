@@ -51,13 +51,14 @@ const nflStatMap = {
 
 export default async function handler(req, res) {
   console.log('🏈 HIT /api/nfl-insights');
+  console.log('🏈 Request body:', JSON.stringify(req.body, null, 2));
 
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Only POST requests allowed' });
   }
 
   const { 
-    playerId, 
+    playerId,  // Optional
     playerName, 
     statType, 
     line, 
@@ -66,16 +67,18 @@ export default async function handler(req, res) {
     opponentTeamId 
   } = req.body;
 
-  // Validate required parameters
-  if (!playerId || !playerName || !statType) {
+  // Validate required parameters (only playerName and statType are required)
+  if (!playerName || !statType) {
+    console.log('❌ Missing required parameters:', { playerName, statType });
     return res.status(400).json({ 
-      message: 'Missing required parameters: playerId, playerName, statType' 
+      message: 'Missing required parameters: playerName, statType' 
     });
   }
 
   // Validate stat type
   const normalizedStatType = nflStatMap[statType.toLowerCase()];
   if (!normalizedStatType) {
+    console.log('❌ Unsupported stat type:', statType);
     return res.status(400).json({ 
       message: `Unsupported NFL stat type: ${statType}. Supported types: ${Object.keys(nflStatMap).join(', ')}` 
     });
@@ -84,8 +87,44 @@ export default async function handler(req, res) {
   try {
     console.log(`🏈 Getting NFL insights for ${playerName} - ${statType} ${direction} ${line}`);
     
+    // If playerId is not provided, look it up using playerName
+    let finalPlayerId = playerId;
+    
+    if (!finalPlayerId) {
+      console.log(`🔍 Looking up player ID for ${playerName}`);
+      
+      // Split player name for database lookup
+      const [firstName, ...lastParts] = playerName.split(' ');
+      const lastName = lastParts.join(' ');
+
+      const { data: playerData, error: lookupError } = await supabase
+        .from('players')
+        .select('player_id')
+        .ilike('first_name', `%${firstName}%`)
+        .ilike('last_name', `%${lastName}%`)
+        .maybeSingle();
+
+      if (lookupError) {
+        console.error('❌ Player lookup error:', lookupError);
+        return res.status(500).json({ 
+          message: 'Error looking up player',
+          error: lookupError.message 
+        });
+      }
+
+      if (!playerData) {
+        console.log(`❌ Player not found: ${playerName}`);
+        return res.status(404).json({ 
+          message: `Player not found: ${playerName}` 
+        });
+      }
+      
+      finalPlayerId = playerData.player_id;
+      console.log(`✅ Found player ID: ${finalPlayerId} for ${playerName}`);
+    }
+    
     const result = await getNFLInsightsForStat({
-      playerId,
+      playerId: finalPlayerId,
       playerName,
       statType: normalizedStatType,
       line: parseFloat(line),
