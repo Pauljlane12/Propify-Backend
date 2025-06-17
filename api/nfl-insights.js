@@ -7,10 +7,14 @@ export const config = {
   },
 };
 
-const supabase = createClient(
-  'https://kdhnyndibqvolnwjfgop.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkaG55bmRpYnF2b2xud2pmZ29wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk1NzgyODMsImV4cCI6MjA2NTE0MjgzfQ.qcK4WYX31FjRUvK_Wjd9aNEpi6zSIe3lTxcpsRw3uP8'
-);
+// Use environment variables with fallback to hardcoded values
+const supabaseUrl = process.env.SUPABASE_URL || 'https://kdhnyndibqvolnwjfgop.supabase.co';
+const supabaseKey = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkaG55bmRpYnF2b2xud2pmZ29wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk1NzgyODMsImV4cCI6MjA2NTE1NDI4M30.qcK4WYX31FjRUvK_Wjd9aNEpi6zSIe3lTxcpsRw3uP8';
+
+console.log('🔧 Supabase URL:', supabaseUrl);
+console.log('🔧 Supabase Key (first 20 chars):', supabaseKey.substring(0, 20) + '...');
+
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // NFL stat type mapping for API requests
 const nflStatMap = {
@@ -57,40 +61,45 @@ async function findTeamByName(teamName) {
   
   const cleanTeamName = teamName.trim().toLowerCase();
   
-  // Try exact match on abbreviation first
-  let { data: teamData, error } = await supabase
-    .from('teams')
-    .select('id, name, abbreviation')
-    .ilike('abbreviation', cleanTeamName)
-    .maybeSingle();
+  try {
+    // Try exact match on abbreviation first
+    let { data: teamData, error } = await supabase
+      .from('teams')
+      .select('id, name, abbreviation')
+      .ilike('abbreviation', cleanTeamName)
+      .maybeSingle();
 
-  if (error) {
-    console.log(`❌ Team abbreviation lookup error:`, error);
+    if (error) {
+      console.log(`❌ Team abbreviation lookup error:`, error);
+    }
+
+    if (teamData) {
+      console.log(`✅ Found team by abbreviation: ${teamData.name} (${teamData.abbreviation}) - ID: ${teamData.id}`);
+      return teamData;
+    }
+
+    // Try partial match on team name
+    ({ data: teamData, error } = await supabase
+      .from('teams')
+      .select('id, name, abbreviation')
+      .ilike('name', `%${cleanTeamName}%`)
+      .maybeSingle());
+
+    if (error) {
+      console.log(`❌ Team name lookup error:`, error);
+    }
+
+    if (teamData) {
+      console.log(`✅ Found team by name: ${teamData.name} (${teamData.abbreviation}) - ID: ${teamData.id}`);
+      return teamData;
+    }
+
+    console.log(`❌ Team not found: "${teamName}"`);
+    return null;
+  } catch (err) {
+    console.log(`❌ Team lookup exception:`, err);
+    return null;
   }
-
-  if (teamData) {
-    console.log(`✅ Found team by abbreviation: ${teamData.name} (${teamData.abbreviation}) - ID: ${teamData.id}`);
-    return teamData;
-  }
-
-  // Try partial match on team name
-  ({ data: teamData, error } = await supabase
-    .from('teams')
-    .select('id, name, abbreviation')
-    .ilike('name', `%${cleanTeamName}%`)
-    .maybeSingle());
-
-  if (error) {
-    console.log(`❌ Team name lookup error:`, error);
-  }
-
-  if (teamData) {
-    console.log(`✅ Found team by name: ${teamData.name} (${teamData.abbreviation}) - ID: ${teamData.id}`);
-    return teamData;
-  }
-
-  console.log(`❌ Team not found: "${teamName}"`);
-  return null;
 }
 
 export default async function handler(req, res) {
@@ -153,155 +162,183 @@ export default async function handler(req, res) {
   async function findPlayerByName(playerName) {
     console.log(`🔍 Starting fuzzy lookup for: "${playerName}"`);
     
-    // Clean and normalize the input
-    const cleanName = playerName.trim().toLowerCase();
-    const nameParts = cleanName.split(/\s+/);
-    
-    if (nameParts.length < 2) {
-      console.log(`❌ Invalid name format: "${playerName}" - need first and last name`);
-      return null;
-    }
-    
-    const firstName = nameParts[0];
-    const lastName = nameParts.slice(1).join(' ');
-    
-    console.log(`🔍 Parsed name: firstName="${firstName}", lastName="${lastName}"`);
-    
-    // Strategy 1: Exact match (case insensitive)
-    console.log(`🔍 Strategy 1 - Exact match`);
-    
-    let { data: playerData, error } = await supabase
-      .from('players')
-      .select('id, first_name, last_name, team_id, position')
-      .ilike('first_name', firstName)
-      .ilike('last_name', lastName)
-      .maybeSingle();
+    try {
+      // Test Supabase connection first
+      console.log('🔧 Testing Supabase connection...');
+      const { data: testData, error: testError } = await supabase
+        .from('players')
+        .select('count')
+        .limit(1);
+      
+      if (testError) {
+        console.log('❌ Supabase connection test failed:', testError);
+        throw new Error(`Database connection failed: ${testError.message}`);
+      }
+      
+      console.log('✅ Supabase connection successful');
+      
+      // Clean and normalize the input
+      const cleanName = playerName.trim().toLowerCase();
+      const nameParts = cleanName.split(/\s+/);
+      
+      if (nameParts.length < 2) {
+        console.log(`❌ Invalid name format: "${playerName}" - need first and last name`);
+        return null;
+      }
+      
+      const firstName = nameParts[0];
+      const lastName = nameParts.slice(1).join(' ');
+      
+      console.log(`🔍 Parsed name: firstName="${firstName}", lastName="${lastName}"`);
+      
+      // Strategy 1: Exact match (case insensitive)
+      console.log(`🔍 Strategy 1 - Exact match`);
+      
+      let { data: playerData, error } = await supabase
+        .from('players')
+        .select('id, first_name, last_name, team_id, position')
+        .ilike('first_name', firstName)
+        .ilike('last_name', lastName)
+        .maybeSingle();
 
-    if (error) {
-      console.log(`❌ Strategy 1 database error:`, error);
-    }
+      if (error) {
+        console.log(`❌ Strategy 1 database error:`, error);
+      }
 
-    if (playerData) {
-      console.log(`✅ Strategy 1 success: Found ${playerData.first_name} ${playerData.last_name} (ID: ${playerData.id})`);
-      return playerData;
-    }
+      if (playerData) {
+        console.log(`✅ Strategy 1 success: Found ${playerData.first_name} ${playerData.last_name} (ID: ${playerData.id})`);
+        return playerData;
+      }
 
-    // Strategy 2: Partial match with wildcards
-    console.log(`🔍 Strategy 2 - Partial match with wildcards`);
-    
-    ({ data: playerData, error } = await supabase
-      .from('players')
-      .select('id, first_name, last_name, team_id, position')
-      .ilike('first_name', `%${firstName}%`)
-      .ilike('last_name', `%${lastName}%`)
-      .maybeSingle());
-
-    if (error) {
-      console.log(`❌ Strategy 2 database error:`, error);
-    }
-
-    if (playerData) {
-      console.log(`✅ Strategy 2 success: Found ${playerData.first_name} ${playerData.last_name} (ID: ${playerData.id})`);
-      return playerData;
-    }
-
-    // Strategy 3: Try nickname expansion
-    const expandedFirstName = nicknameMap[firstName] || firstName;
-    if (expandedFirstName !== firstName) {
-      console.log(`🔍 Strategy 3 - Nickname expansion: "${firstName}" → "${expandedFirstName}"`);
+      // Strategy 2: Partial match with wildcards
+      console.log(`🔍 Strategy 2 - Partial match with wildcards`);
       
       ({ data: playerData, error } = await supabase
         .from('players')
         .select('id, first_name, last_name, team_id, position')
-        .ilike('first_name', `%${expandedFirstName}%`)
+        .ilike('first_name', `%${firstName}%`)
         .ilike('last_name', `%${lastName}%`)
         .maybeSingle());
 
       if (error) {
-        console.log(`❌ Strategy 3 database error:`, error);
+        console.log(`❌ Strategy 2 database error:`, error);
       }
 
       if (playerData) {
-        console.log(`✅ Strategy 3 success: Found ${playerData.first_name} ${playerData.last_name} (ID: ${playerData.id})`);
+        console.log(`✅ Strategy 2 success: Found ${playerData.first_name} ${playerData.last_name} (ID: ${playerData.id})`);
         return playerData;
       }
-    }
 
-    // Strategy 4: Search by first name and find best last name match
-    console.log(`🔍 Strategy 4 - First name search with last name filtering`);
-    
-    const { data: players, error: searchError } = await supabase
-      .from('players')
-      .select('id, first_name, last_name, team_id, position')
-      .ilike('first_name', firstName)
-      .limit(20);
+      // Strategy 3: Try nickname expansion
+      const expandedFirstName = nicknameMap[firstName] || firstName;
+      if (expandedFirstName !== firstName) {
+        console.log(`🔍 Strategy 3 - Nickname expansion: "${firstName}" → "${expandedFirstName}"`);
+        
+        ({ data: playerData, error } = await supabase
+          .from('players')
+          .select('id, first_name, last_name, team_id, position')
+          .ilike('first_name', `%${expandedFirstName}%`)
+          .ilike('last_name', `%${lastName}%`)
+          .maybeSingle());
 
-    if (searchError) {
-      console.log(`❌ Strategy 4 database error:`, searchError);
-    }
+        if (error) {
+          console.log(`❌ Strategy 3 database error:`, error);
+        }
 
-    if (players && players.length > 0) {
-      console.log(`🔍 Found ${players.length} players with first name "${firstName}":`, 
-        players.map(p => `${p.first_name} ${p.last_name}`));
-      
-      // Find best match by checking if last name matches
-      const exactLastNameMatch = players.find(p => 
-        p.last_name.toLowerCase() === lastName
-      );
-      
-      if (exactLastNameMatch) {
-        console.log(`✅ Strategy 4 success: Found exact last name match ${exactLastNameMatch.first_name} ${exactLastNameMatch.last_name} (ID: ${exactLastNameMatch.id})`);
-        return exactLastNameMatch;
+        if (playerData) {
+          console.log(`✅ Strategy 3 success: Found ${playerData.first_name} ${playerData.last_name} (ID: ${playerData.id})`);
+          return playerData;
+        }
       }
+
+      // Strategy 4: Search by first name and find best last name match
+      console.log(`🔍 Strategy 4 - First name search with last name filtering`);
       
-      // Try partial last name match
-      const partialLastNameMatch = players.find(p => 
-        p.last_name.toLowerCase().includes(lastName) || 
-        lastName.includes(p.last_name.toLowerCase())
-      );
-      
-      if (partialLastNameMatch) {
-        console.log(`✅ Strategy 4 partial success: Found ${partialLastNameMatch.first_name} ${partialLastNameMatch.last_name} (ID: ${partialLastNameMatch.id})`);
-        return partialLastNameMatch;
+      const { data: players, error: searchError } = await supabase
+        .from('players')
+        .select('id, first_name, last_name, team_id, position')
+        .ilike('first_name', firstName)
+        .limit(20);
+
+      if (searchError) {
+        console.log(`❌ Strategy 4 database error:`, searchError);
       }
-    }
 
-    // Strategy 5: Last resort - search by last name only
-    console.log(`🔍 Strategy 5 - Last name only search`);
-    
-    const { data: lastNameMatches, error: lastNameError } = await supabase
-      .from('players')
-      .select('id, first_name, last_name, team_id, position')
-      .ilike('last_name', lastName)
-      .limit(10);
-
-    if (lastNameError) {
-      console.log(`❌ Strategy 5 database error:`, lastNameError);
-    }
-
-    if (lastNameMatches && lastNameMatches.length > 0) {
-      console.log(`🔍 Found ${lastNameMatches.length} players with last name "${lastName}":`, 
-        lastNameMatches.map(p => `${p.first_name} ${p.last_name}`));
-      
-      // Try to find a first name match
-      const firstNameMatch = lastNameMatches.find(p => 
-        p.first_name.toLowerCase().includes(firstName) || 
-        firstName.includes(p.first_name.toLowerCase())
-      );
-      
-      if (firstNameMatch) {
-        console.log(`✅ Strategy 5 success: Found ${firstNameMatch.first_name} ${firstNameMatch.last_name} (ID: ${firstNameMatch.id})`);
-        return firstNameMatch;
+      if (players && players.length > 0) {
+        console.log(`🔍 Found ${players.length} players with first name "${firstName}":`, 
+          players.map(p => `${p.first_name} ${p.last_name}`));
+        
+        // Find best match by checking if last name matches
+        const exactLastNameMatch = players.find(p => 
+          p.last_name.toLowerCase() === lastName
+        );
+        
+        if (exactLastNameMatch) {
+          console.log(`✅ Strategy 4 success: Found exact last name match ${exactLastNameMatch.first_name} ${exactLastNameMatch.last_name} (ID: ${exactLastNameMatch.id})`);
+          return exactLastNameMatch;
+        }
+        
+        // Try partial last name match (but be more strict)
+        const partialLastNameMatch = players.find(p => {
+          const playerLastName = p.last_name.toLowerCase();
+          // Only match if the search term is a significant part of the player's last name
+          // or vice versa, and avoid generic words
+          const isSignificantMatch = (
+            (lastName.length >= 3 && playerLastName.includes(lastName)) ||
+            (playerLastName.length >= 3 && lastName.includes(playerLastName))
+          ) && lastName !== 'player' && playerLastName !== 'player'; // Avoid generic matches
+          
+          return isSignificantMatch;
+        });
+        
+        if (partialLastNameMatch) {
+          console.log(`✅ Strategy 4 partial success: Found ${partialLastNameMatch.first_name} ${partialLastNameMatch.last_name} (ID: ${partialLastNameMatch.id})`);
+          return partialLastNameMatch;
+        }
       }
-      
-      // Return the first match as a fallback
-      const fallbackMatch = lastNameMatches[0];
-      console.log(`⚠️ Strategy 5 fallback: Using ${fallbackMatch.first_name} ${fallbackMatch.last_name} (ID: ${fallbackMatch.id})`);
-      return fallbackMatch;
-    }
 
-    console.log(`❌ All strategies failed for: "${playerName}"`);
-    return null;
+      // Strategy 5: Last resort - search by last name only (but be more strict)
+      if (lastName.length >= 4 && lastName !== 'player') { // Only for meaningful last names
+        console.log(`🔍 Strategy 5 - Last name only search`);
+        
+        const { data: lastNameMatches, error: lastNameError } = await supabase
+          .from('players')
+          .select('id, first_name, last_name, team_id, position')
+          .ilike('last_name', lastName)
+          .limit(10);
+
+        if (lastNameError) {
+          console.log(`❌ Strategy 5 database error:`, lastNameError);
+        }
+
+        if (lastNameMatches && lastNameMatches.length > 0) {
+          console.log(`🔍 Found ${lastNameMatches.length} players with last name "${lastName}":`, 
+            lastNameMatches.map(p => `${p.first_name} ${p.last_name}`));
+          
+          // Try to find a first name match
+          const firstNameMatch = lastNameMatches.find(p => {
+            const playerFirstName = p.first_name.toLowerCase();
+            // Be more strict about first name matching
+            return (
+              playerFirstName.includes(firstName) || 
+              firstName.includes(playerFirstName)
+            ) && Math.abs(playerFirstName.length - firstName.length) <= 3; // Similar length
+          });
+          
+          if (firstNameMatch) {
+            console.log(`✅ Strategy 5 success: Found ${firstNameMatch.first_name} ${firstNameMatch.last_name} (ID: ${firstNameMatch.id})`);
+            return firstNameMatch;
+          }
+        }
+      }
+
+      console.log(`❌ All strategies failed for: "${playerName}"`);
+      return null;
+      
+    } catch (err) {
+      console.log(`❌ Player lookup exception:`, err);
+      throw err;
+    }
   }
 
   try {
